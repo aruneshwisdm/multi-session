@@ -5,4 +5,8 @@ edition.workspace = true
 
 [dependencies]
 jc-core.workspace = true
+alacritty_terminal.workspace = true
+portable-pty.workspace = true
+parking_lot.workspace = true
+flume.workspace = true
 anyhow.workspace = true
