@@ -232,9 +232,19 @@ multi-session/
 
 ## Current Phase
 
-**Phase 0: Environment Setup** — Not yet started.
+**Phase 5: Packaging & Distribution** — Completed.
 
-Update this section as work progresses. Reference the execution plan for detailed task checklists.
+All phases (0-5) are done. The app compiles with 0 errors and 0 warnings. 55 tests pass.
+
+**Remaining work for full feature parity:**
+- Terminal canvas rendering (Phase 3b) — PTY infrastructure is in place, rendering is placeholder
+- VTE parsing integration — deferred until terminal rendering
+- Syntax highlighting in code viewer — tree-sitter grammars are linked but not wired to display
+- Full text editing in code viewer and TODO editor (currently read-only display)
+
+### Build Notes
+
+On Windows mount (`/mnt/c/...`), use `CARGO_TARGET_DIR=/tmp/jc-build` to avoid cross-device link errors.
 
 ## Upstream Sync Strategy
 

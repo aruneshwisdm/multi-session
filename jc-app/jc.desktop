@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=jc
+Comment=Claude Code multi-session orchestrator
+Exec=jc %f
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;IDE;
+Keywords=claude;code;terminal;session;
+MimeType=inode/directory;
