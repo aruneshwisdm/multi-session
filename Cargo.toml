@@ -49,6 +49,9 @@ notify = "7"
 # Clipboard
 arboard = { version = "3", features = ["wayland-data-control"] }
 
+# Logging
+log = "0.4"
+
 # Platform abstractions
 notify-rust = "4"
 ctrlc = "3"
