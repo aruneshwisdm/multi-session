@@ -1,0 +1,59 @@
+[workspace]
+members = ["jc-core", "jc-platform", "jc-terminal", "jc-app"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# Core data
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+dirs = "6"
+flume = "0.11"
+tiny_http = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Terminal
+alacritty_terminal = "0.25"
+portable-pty = "0.9"
+parking_lot = "0.12"
+
+# GUI
+iced = { version = "0.13", features = ["wgpu", "tokio", "canvas"] }
+
+# Git & diff
+git2 = { version = "0.20", default-features = false }
+similar = "2"
+diffy = "0.4"
+
+# Syntax
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-md = "0.5"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+
+# File watching
+notify = "7"
+
+# Clipboard
+arboard = { version = "3", features = ["wayland-data-control"] }
+
+# Platform abstractions
+notify-rust = "4"
+ctrlc = "3"
+
+# Internal crates
+jc-core = { path = "jc-core" }
+jc-platform = { path = "jc-platform" }
+jc-terminal = { path = "jc-terminal" }
