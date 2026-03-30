@@ -1,1 +1,3 @@
-// Placeholder — populated in Phase 1
+pub mod notifications;
+pub mod ipc;
+pub mod signals;

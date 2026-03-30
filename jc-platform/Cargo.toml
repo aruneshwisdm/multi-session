@@ -4,5 +4,17 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
+jc-core.workspace = true
 anyhow.workspace = true
 flume.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+log = "0.4"
+
+# Cross-platform signal handling
+ctrlc = "3"
+
+# Notifications (Linux and Windows)
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+notify-rust = "4"
