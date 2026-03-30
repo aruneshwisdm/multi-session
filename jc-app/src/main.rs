@@ -1,6 +1,9 @@
 mod app;
+#[allow(dead_code)]
 mod language;
+#[allow(dead_code)]
 mod outline;
+#[allow(dead_code)]
 mod views;
 
 use clap::{Parser, Subcommand};

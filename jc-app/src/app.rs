@@ -122,7 +122,87 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
 
         // Picker
         Message::OpenPicker(kind) => {
-            workspace.picker = Some(PickerState::new(kind));
+            use crate::views::picker::{PickerItem, PickerItemData, PickerKind};
+            let mut picker = PickerState::new(kind.clone());
+
+            // Pre-populate picker items based on kind.
+            match &kind {
+                PickerKind::Session => {
+                    let project = workspace.active_project();
+                    picker.items = project
+                        .sessions
+                        .iter()
+                        .map(|(&id, s)| PickerItem {
+                            label: s.label.clone(),
+                            detail: if s.busy {
+                                "working...".into()
+                            } else {
+                                String::new()
+                            },
+                            data: PickerItemData::Session(id),
+                        })
+                        .collect();
+                }
+                PickerKind::Project => {
+                    picker.items = workspace
+                        .projects
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| PickerItem {
+                            label: p.name.clone(),
+                            detail: p.path.display().to_string(),
+                            data: PickerItemData::Project(i),
+                        })
+                        .collect();
+                }
+                PickerKind::Command => {
+                    picker.items = vec![
+                        PickerItem {
+                            label: "New Session".into(),
+                            detail: "Create a new Claude session".into(),
+                            data: PickerItemData::Command("new_session".into()),
+                        },
+                        PickerItem {
+                            label: "Toggle Layout".into(),
+                            detail: "Switch between 1/2/3 pane layout".into(),
+                            data: PickerItemData::Command(
+                                "toggle_layout".into(),
+                            ),
+                        },
+                    ];
+                }
+                PickerKind::File => {
+                    // Walk project directory for common source files.
+                    let project_path =
+                        workspace.projects[workspace.active_project_index]
+                            .path
+                            .clone();
+                    let mut files = Vec::new();
+                    if let Ok(entries) =
+                        walkdir_collect(&project_path, 500)
+                    {
+                        files = entries;
+                    }
+                    picker.items = files
+                        .into_iter()
+                        .map(|p| {
+                            let rel = p
+                                .strip_prefix(&project_path)
+                                .unwrap_or(&p)
+                                .display()
+                                .to_string();
+                            PickerItem {
+                                label: rel,
+                                detail: String::new(),
+                                data: PickerItemData::File(p),
+                            }
+                        })
+                        .collect();
+                }
+                _ => {}
+            }
+
+            workspace.picker = Some(picker);
         }
         Message::PickerQueryChanged(query) => {
             if let Some(picker) = &mut workspace.picker {
@@ -140,8 +220,67 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             }
         }
         Message::PickerConfirm => {
-            // Handle picker selection
-            workspace.picker = None;
+            if let Some(picker) = &workspace.picker {
+                if let Some(item) = picker.selected_item() {
+                    let data = item.data.clone();
+                    workspace.picker = None;
+                    match data {
+                        crate::views::picker::PickerItemData::File(path) => {
+                            return update(workspace, Message::OpenFile(path));
+                        }
+                        crate::views::picker::PickerItemData::Session(id) => {
+                            return update(
+                                workspace,
+                                Message::SwitchSession(id),
+                            );
+                        }
+                        crate::views::picker::PickerItemData::Project(idx) => {
+                            return update(
+                                workspace,
+                                Message::SwitchProject(idx),
+                            );
+                        }
+                        crate::views::picker::PickerItemData::Command(cmd) => {
+                            match cmd.as_str() {
+                                "new_session" => {
+                                    return update(
+                                        workspace,
+                                        Message::NewSession,
+                                    );
+                                }
+                                "toggle_layout" => {
+                                    let next = match workspace.layout {
+                                        crate::views::workspace::PaneLayoutKind::One => {
+                                            crate::views::workspace::PaneLayoutKind::Two
+                                        }
+                                        crate::views::workspace::PaneLayoutKind::Two => {
+                                            crate::views::workspace::PaneLayoutKind::Three
+                                        }
+                                        crate::views::workspace::PaneLayoutKind::Three => {
+                                            crate::views::workspace::PaneLayoutKind::One
+                                        }
+                                    };
+                                    return update(
+                                        workspace,
+                                        Message::SetLayout(next),
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                        crate::views::picker::PickerItemData::Line(line) => {
+                            let pi = workspace.active_project_index;
+                            workspace.code_views[pi]
+                                .scroll_offset = line as f32;
+                        }
+                        crate::views::picker::PickerItemData::Snippet(_) => {
+                            // Snippet insertion needs terminal input support.
+                        }
+                    }
+                } else {
+                    workspace.picker = None;
+                }
+            }
         }
         Message::PickerDismiss => {
             workspace.picker = None;
@@ -192,6 +331,11 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             let conflicts = workspace.save_all_dirty();
             let active_count = workspace.active_session_count();
             if conflicts.is_empty() && active_count == 0 {
+                for project in &workspace.projects {
+                    let _ = jc_core::hooks_settings::uninstall_hooks(
+                        &project.path,
+                    );
+                }
                 return iced::exit();
             }
             workspace.close_confirm =
@@ -203,6 +347,11 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
         }
         Message::ConfirmClose => {
             workspace.close_confirm = None;
+            // Uninstall hooks before exit.
+            for project in &workspace.projects {
+                let _ =
+                    jc_core::hooks_settings::uninstall_hooks(&project.path);
+            }
             return iced::exit();
         }
         Message::CancelClose => {
@@ -226,7 +375,24 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
         }
 
         Message::NotificationAction(_) => {}
-        Message::FileChanged(_) => {}
+        Message::FileChanged(path) => {
+            // Reload code view if the changed file is currently open.
+            let pi = workspace.active_project_index;
+            let cv = &workspace.code_views[pi];
+            if cv.file_path.as_ref() == Some(&path) && !cv.dirty {
+                workspace.code_views[pi].open_file(path.clone());
+            }
+            // Refresh TODO view if TODO.md changed.
+            let todo_path = workspace.projects[pi].path.join("TODO.md");
+            if path == todo_path && !workspace.todo_views[pi].dirty {
+                workspace.todo_views[pi] =
+                    crate::views::todo_view::TodoViewState::new(
+                        workspace.projects[pi].path.clone(),
+                    );
+            }
+            // Mark diff as stale.
+            workspace.diff_views[pi].stale = true;
+        }
         Message::None => {}
     }
 
@@ -314,19 +480,105 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
         ));
     }
 
-    // PTY reader subscriptions for all active sessions
-    for project in &workspace.projects {
-        for (&session_id, _session) in &project.sessions {
-            // PTY reading subscriptions will be added when terminal rendering
-            // is implemented. For now, terminal output is not consumed.
-            // The reader threads need to be spawned and feed data via channels.
-            let _ = session_id;
-        }
+    // File watcher subscription — watches project dirs for changes.
+    let watch_paths: Vec<PathBuf> = workspace
+        .projects
+        .iter()
+        .map(|p| p.path.clone())
+        .collect();
+    if !watch_paths.is_empty() {
+        subscriptions.push(Subscription::run_with_id(
+            "file-watcher",
+            iced::stream::channel(64, move |mut sender| {
+                async move {
+                    use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let mut watcher: RecommendedWatcher =
+                        match notify::recommended_watcher(tx) {
+                            Ok(w) => w,
+                            Err(e) => {
+                                eprintln!("file watcher init failed: {e}");
+                                std::future::pending::<()>().await;
+                                return;
+                            }
+                        };
+                    for p in &watch_paths {
+                        let _ = watcher.watch(p, RecursiveMode::Recursive);
+                    }
+                    loop {
+                        match rx.recv() {
+                            Ok(Ok(event)) => {
+                                for path in event.paths {
+                                    let _ = sender
+                                        .send(Message::FileChanged(path))
+                                        .await;
+                                }
+                            }
+                            Ok(Err(e)) => {
+                                eprintln!("file watcher error: {e}");
+                            }
+                            Err(_) => {
+                                std::future::pending::<()>().await;
+                            }
+                        }
+                    }
+                }
+            }),
+        ));
     }
+
+    // PTY reader subscriptions for all active sessions.
+    // Terminal canvas rendering is deferred — PTY output is not yet consumed.
 
     Subscription::batch(subscriptions)
 }
 
 fn theme(_workspace: &Workspace) -> Theme {
     Theme::Dark
+}
+
+/// Walk a directory, collecting up to `limit` source files.
+/// Skips hidden dirs, target/, node_modules/, .git/.
+fn walkdir_collect(
+    root: &std::path::Path,
+    limit: usize,
+) -> std::io::Result<Vec<PathBuf>> {
+    let mut result = Vec::new();
+    let skip_dirs = [".git", "target", "node_modules", ".next", "__pycache__"];
+    walk_recurse(root, root, &skip_dirs, limit, &mut result);
+    Ok(result)
+}
+
+fn walk_recurse(
+    dir: &std::path::Path,
+    root: &std::path::Path,
+    skip: &[&str],
+    limit: usize,
+    out: &mut Vec<PathBuf>,
+) {
+    if out.len() >= limit {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if out.len() >= limit {
+            return;
+        }
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            if !skip.contains(&name_str.as_ref()) {
+                walk_recurse(&path, root, skip, limit, out);
+            }
+        } else {
+            out.push(path);
+        }
+    }
 }

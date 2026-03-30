@@ -41,10 +41,22 @@ impl Terminal {
 
     fn spawn_command(command: &str, project_path: &Path) -> Self {
         let (event_tx, event_rx) = flume::unbounded();
-        let (pty, reader) = PtyHandle::spawn_command(command, 80, 24, Some(project_path))
-            .expect("failed to spawn command PTY");
-        let state = TerminalState::new(80, 24, event_tx);
-        Self { pty, reader: Some(reader), state, event_rx }
+        match PtyHandle::spawn_command(command, 80, 24, Some(project_path)) {
+            Ok((pty, reader)) => {
+                let state = TerminalState::new(80, 24, event_tx);
+                Self { pty, reader: Some(reader), state, event_rx }
+            }
+            Err(e) => {
+                eprintln!("failed to spawn command '{command}': {e}");
+                eprintln!("falling back to shell — is 'claude' in PATH?");
+                Self::spawn_shell(project_path)
+            }
+        }
+    }
+
+    /// Take the reader for use in a subscription. Returns None if already taken.
+    pub fn take_reader(&mut self) -> Option<Box<dyn Read + Send>> {
+        self.reader.take()
     }
 }
 
