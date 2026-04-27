@@ -82,6 +82,7 @@ pub enum Message {
     JumpToWait,
 
     // Close/Quit
+    CloseActiveSession,
     RequestClose,
     RequestQuit,
     ConfirmClose,
@@ -449,22 +450,20 @@ impl Workspace {
     pub fn save_all_dirty(&mut self) -> Vec<String> {
         let mut conflicts = Vec::new();
 
-        for (i, project) in self.projects.iter().enumerate() {
+        for i in 0..self.projects.len() {
             if self.todo_views[i].dirty {
                 self.todo_views[i].save();
             }
-            for _session in project.sessions.values() {
-                let cv = &self.code_views[i];
-                if cv.dirty {
-                    if cv.externally_modified {
-                        if let Some(path) = &cv.file_path {
-                            let relative = path
-                                .strip_prefix(&project.path)
-                                .unwrap_or(path);
-                            conflicts.push(relative.display().to_string());
-                        }
+            if self.code_views[i].dirty {
+                if self.code_views[i].externally_modified {
+                    if let Some(path) = &self.code_views[i].file_path {
+                        let relative = path
+                            .strip_prefix(&self.projects[i].path)
+                            .unwrap_or(path);
+                        conflicts.push(relative.display().to_string());
                     }
-                    // Note: save is deferred since we can't easily borrow mutably here
+                } else {
+                    self.code_views[i].save();
                 }
             }
         }

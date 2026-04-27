@@ -62,6 +62,17 @@ impl CodeViewState {
         }
     }
 
+    pub fn goto_line(&mut self, line: usize) {
+        self.content.perform(text_editor::Action::Move(
+            text_editor::Motion::DocumentStart,
+        ));
+        for _ in 0..line.saturating_sub(1) {
+            self.content.perform(text_editor::Action::Move(
+                text_editor::Motion::Down,
+            ));
+        }
+    }
+
     pub fn perform_action(&mut self, action: text_editor::Action) {
         let is_edit = action.is_edit();
         self.content.perform(action);

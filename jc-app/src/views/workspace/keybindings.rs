@@ -68,8 +68,7 @@ fn handle_key_press(
         // Session management
         keyboard::Key::Character("t") => Some(Message::NewSession),
         keyboard::Key::Character("w") => {
-            // Close current session
-            Some(Message::CloseSession(0)) // Placeholder — update later
+            Some(Message::CloseActiveSession)
         }
 
         // Problems

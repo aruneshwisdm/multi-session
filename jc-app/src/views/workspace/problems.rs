@@ -227,13 +227,15 @@ impl Workspace {
         self.show_in_pane(pane_idx, kind);
 
         match target {
-            ProblemTarget::CodeView { file, line: _ }
+            ProblemTarget::CodeView { file, line }
                 if kind == PaneContentKind::CodeViewer =>
             {
                 let pi = self.active_project_index;
                 let full_path = self.projects[pi].path.join(&file);
                 self.code_views[pi].open_file(full_path);
-                // Line scrolling will be added with text editor widget.
+                if let Some(line) = line {
+                    self.code_views[pi].goto_line(line);
+                }
             }
             _ => {}
         }

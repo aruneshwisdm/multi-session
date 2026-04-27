@@ -36,10 +36,7 @@ pub fn run(state: AppState, config: AppConfig, ipc_rx: flume::Receiver<PathBuf>)
 
 fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
     match message {
-        Message::TerminalOutput(_session_id, _data) => {
-            // VTE processing happens in the PTY reader thread.
-            // This message is no longer used but kept for compatibility.
-        }
+        Message::TerminalOutput(_session_id, _data) => {}
         Message::TerminalEvent(session_id, event_kind) => {
             use crate::views::session_state::PendingEvent;
             use crate::views::workspace::TerminalEventKind;
@@ -69,6 +66,12 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
         Message::SwitchSession(id) => workspace.switch_session(id),
         Message::NewSession => workspace.create_session(),
         Message::CloseSession(id) => workspace.close_session(id),
+        Message::CloseActiveSession => {
+            let project = workspace.active_project();
+            if let Some(id) = project.active_session {
+                workspace.close_session(id);
+            }
+        }
         Message::SwitchProject(idx) => {
             if idx < workspace.projects.len() {
                 workspace.active_project_index = idx;
