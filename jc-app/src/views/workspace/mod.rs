@@ -493,4 +493,44 @@ impl Workspace {
             .filter(|s| s.busy)
             .count()
     }
+
+    #[cfg(test)]
+    pub fn for_testing() -> Self {
+        let path = std::env::temp_dir().join("jc-test-project");
+        let _ = std::fs::create_dir_all(&path);
+        let project = ProjectState::for_testing(path.clone(), "test-project".into());
+        let code_view = CodeViewState::default();
+        let diff_view = DiffViewState::new(path.clone());
+        let todo_view = TodoViewState::new(path);
+
+        Self {
+            panes: vec![
+                PaneState::new(PaneContentKind::ClaudeTerminal),
+                PaneState::new(PaneContentKind::TodoEditor),
+                PaneState::new(PaneContentKind::GlobalTodo),
+            ],
+            active_pane_index: 0,
+            layout: PaneLayoutKind::default(),
+            projects: vec![project],
+            active_project_index: 0,
+            config: AppConfig::default(),
+            palette: Palette::for_appearance(Appearance::Dark),
+            picker: None,
+            keybinding_help: KeybindingHelpState::default(),
+            code_views: vec![code_view],
+            diff_views: vec![diff_view],
+            todo_views: vec![todo_view],
+            global_todo: CodeViewState::default(),
+            hook_server: None,
+            ipc_rx: None,
+            snippets: SnippetDocument::default(),
+            close_confirm: None,
+            problem_cycle: None,
+            pre_layer0_home: None,
+            terminal_cols: 80,
+            terminal_rows: 24,
+            last_terminal_selection: String::new(),
+            window_active: true,
+        }
+    }
 }

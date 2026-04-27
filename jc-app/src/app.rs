@@ -34,7 +34,7 @@ pub fn run(state: AppState, config: AppConfig, ipc_rx: flume::Receiver<PathBuf>)
         .expect("failed to run iced application");
 }
 
-fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
+pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
     match message {
         Message::TerminalOutput(_session_id, _data) => {}
         Message::TerminalEvent(session_id, event_kind) => {
@@ -765,5 +765,469 @@ fn walk_recurse(
         } else {
             out.push(path);
         }
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::views::pane::PaneContentKind;
+    use crate::views::picker::PickerKind;
+    use crate::views::workspace::PaneLayoutKind;
+
+    fn ws() -> Workspace {
+        Workspace::for_testing()
+    }
+
+    fn send(w: &mut Workspace, msg: Message) {
+        let _ = update(w, msg);
+    }
+
+    // -------------------------------------------------------------------
+    // Layout management
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn set_layout_changes_visible_panes() {
+        let mut w = ws();
+        assert_eq!(w.visible_pane_count(), 3);
+
+        send(&mut w, Message::SetLayout(PaneLayoutKind::One));
+        assert_eq!(w.visible_pane_count(), 1);
+        assert_eq!(w.layout, PaneLayoutKind::One);
+
+        send(&mut w, Message::SetLayout(PaneLayoutKind::Two));
+        assert_eq!(w.visible_pane_count(), 2);
+    }
+
+    #[test]
+    fn set_layout_clamps_active_pane() {
+        let mut w = ws();
+        w.active_pane_index = 2;
+        send(&mut w, Message::SetLayout(PaneLayoutKind::One));
+        assert_eq!(w.active_pane_index, 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Pane cycling
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn cycle_pane_wraps_around() {
+        let mut w = ws();
+        assert_eq!(w.active_pane_index, 0);
+
+        send(&mut w, Message::CyclePane);
+        assert_eq!(w.active_pane_index, 1);
+
+        send(&mut w, Message::CyclePane);
+        assert_eq!(w.active_pane_index, 2);
+
+        send(&mut w, Message::CyclePane);
+        assert_eq!(w.active_pane_index, 0);
+    }
+
+    #[test]
+    fn cycle_pane_respects_layout() {
+        let mut w = ws();
+        send(&mut w, Message::SetLayout(PaneLayoutKind::Two));
+        w.active_pane_index = 1;
+        send(&mut w, Message::CyclePane);
+        assert_eq!(w.active_pane_index, 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Show pane
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn show_pane_changes_content() {
+        let mut w = ws();
+        assert_eq!(w.panes[0].kind, PaneContentKind::ClaudeTerminal);
+
+        send(&mut w, Message::ShowPane(PaneContentKind::GitDiff));
+        let diff_idx = w.resolve_pane_for_kind(PaneContentKind::GitDiff);
+        assert_eq!(w.panes[diff_idx].kind, PaneContentKind::GitDiff);
+    }
+
+    // -------------------------------------------------------------------
+    // Keybinding help toggle
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn toggle_keybinding_help() {
+        let mut w = ws();
+        assert!(!w.keybinding_help.visible);
+
+        send(&mut w, Message::ToggleKeybindingHelp);
+        assert!(w.keybinding_help.visible);
+
+        send(&mut w, Message::ToggleKeybindingHelp);
+        assert!(!w.keybinding_help.visible);
+    }
+
+    // -------------------------------------------------------------------
+    // Picker lifecycle
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn open_picker_sets_state() {
+        let mut w = ws();
+        assert!(w.picker.is_none());
+
+        send(&mut w, Message::OpenPicker(PickerKind::Command));
+        assert!(w.picker.is_some());
+        assert_eq!(w.picker.as_ref().unwrap().items.len(), 2);
+    }
+
+    #[test]
+    fn picker_dismiss_clears() {
+        let mut w = ws();
+        send(&mut w, Message::OpenPicker(PickerKind::Command));
+        assert!(w.picker.is_some());
+
+        send(&mut w, Message::PickerDismiss);
+        assert!(w.picker.is_none());
+    }
+
+    #[test]
+    fn picker_navigate_and_confirm() {
+        let mut w = ws();
+        send(&mut w, Message::OpenPicker(PickerKind::Command));
+        assert_eq!(w.picker.as_ref().unwrap().selected_index, 0);
+
+        send(&mut w, Message::PickerSelectNext);
+        assert_eq!(w.picker.as_ref().unwrap().selected_index, 1);
+
+        send(&mut w, Message::PickerSelectPrev);
+        assert_eq!(w.picker.as_ref().unwrap().selected_index, 0);
+
+        // Confirm "New Session" — this will try to spawn a session (PTY),
+        // so we test the dispatch path. The session creation will fail
+        // gracefully in test because create_session spawns PTYs.
+        // Instead, confirm on "Toggle Layout" which is pure state change.
+        send(&mut w, Message::PickerSelectNext);
+        send(&mut w, Message::PickerConfirm);
+        assert!(w.picker.is_none());
+    }
+
+    #[test]
+    fn picker_query_changed_filters() {
+        let mut w = ws();
+        send(&mut w, Message::OpenPicker(PickerKind::Command));
+        send(&mut w, Message::PickerQueryChanged("toggle".into()));
+        assert_eq!(w.picker.as_ref().unwrap().query, "toggle");
+    }
+
+    #[test]
+    fn file_picker_populates_from_project() {
+        let mut w = ws();
+        // Create a file in the test project directory
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("test_integration.txt");
+        let _ = std::fs::write(&test_file, "hello");
+
+        send(&mut w, Message::OpenPicker(PickerKind::File));
+        let picker = w.picker.as_ref().unwrap();
+        let has_file = picker.items.iter().any(|i| i.label.contains("test_integration.txt"));
+        assert!(has_file, "file picker should contain the test file");
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn line_search_picker_parses_number() {
+        let mut w = ws();
+        send(&mut w, Message::OpenPicker(PickerKind::LineSearch));
+        assert!(w.picker.is_some());
+
+        send(&mut w, Message::PickerQueryChanged("42".into()));
+        let picker = w.picker.as_ref().unwrap();
+        assert_eq!(picker.items.len(), 1);
+        assert!(picker.items[0].label.contains("42"));
+    }
+
+    #[test]
+    fn line_search_non_number_yields_empty() {
+        let mut w = ws();
+        send(&mut w, Message::OpenPicker(PickerKind::LineSearch));
+        send(&mut w, Message::PickerQueryChanged("abc".into()));
+        assert!(w.picker.as_ref().unwrap().items.is_empty());
+    }
+
+    // -------------------------------------------------------------------
+    // File open and save
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn open_file_loads_into_code_view() {
+        let mut w = ws();
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("test_open.rs");
+        std::fs::write(&test_file, "fn main() {}").unwrap();
+
+        send(&mut w, Message::OpenFile(test_file.clone()));
+        assert_eq!(w.code_views[0].file_path.as_ref(), Some(&test_file));
+        assert!(w.code_views[0].raw_text.contains("fn main"));
+        assert_eq!(w.panes[w.active_pane_index].kind, PaneContentKind::CodeViewer);
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn save_file_persists_changes() {
+        let mut w = ws();
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("test_save.txt");
+        std::fs::write(&test_file, "original").unwrap();
+
+        send(&mut w, Message::OpenFile(test_file.clone()));
+        // Simulate an edit by performing an action
+        use iced::widget::text_editor;
+        w.code_views[0].content.perform(text_editor::Action::SelectAll);
+        w.code_views[0].content.perform(text_editor::Action::Edit(
+            text_editor::Edit::Paste(std::sync::Arc::new("modified".into())),
+        ));
+        w.code_views[0].dirty = true;
+
+        send(&mut w, Message::SaveFile);
+        let content = std::fs::read_to_string(&test_file).unwrap();
+        assert_eq!(content.trim(), "modified");
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    // -------------------------------------------------------------------
+    // Window resize
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn window_resize_updates_terminal_dimensions() {
+        let mut w = ws();
+        assert_eq!(w.terminal_cols, 80);
+        assert_eq!(w.terminal_rows, 24);
+
+        send(&mut w, Message::WindowResized(1800.0, 1000.0));
+        assert_ne!(w.terminal_cols, 80);
+        assert!(w.terminal_cols > 50);
+        assert!(w.terminal_rows > 20);
+    }
+
+    // -------------------------------------------------------------------
+    // Terminal clipboard (without real PTY)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn terminal_text_selected_updates_state() {
+        let mut w = ws();
+        send(&mut w, Message::TerminalTextSelected("hello world".into()));
+        assert_eq!(w.last_terminal_selection, "hello world");
+    }
+
+    // -------------------------------------------------------------------
+    // Diff reviewed
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn diff_reviewed_marks_current_file() {
+        let mut w = ws();
+        w.diff_views[0].apply_diff_text(
+            "diff --git a/foo.rs b/foo.rs\n+added\ndiff --git a/bar.rs b/bar.rs\n+more\n".into(),
+        );
+        assert_eq!(w.diff_views[0].reviewed_count(), 0);
+
+        send(&mut w, Message::DiffReviewed);
+        assert_eq!(w.diff_views[0].reviewed_count(), 1);
+        assert!(w.diff_views[0].file_diffs[0].reviewed);
+        assert!(!w.diff_views[0].file_diffs[1].reviewed);
+    }
+
+    // -------------------------------------------------------------------
+    // Project switching
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn switch_project_changes_active() {
+        let mut w = ws();
+        let path2 = std::env::temp_dir().join("jc-test-project-2");
+        let _ = std::fs::create_dir_all(&path2);
+        w.projects.push(
+            crate::views::project_state::ProjectState::for_testing(
+                path2, "project-2".into(),
+            ),
+        );
+        w.code_views.push(crate::views::code_view::CodeViewState::default());
+        w.diff_views.push(crate::views::diff_view::DiffViewState::new(
+            w.projects[1].path.clone(),
+        ));
+        w.todo_views.push(crate::views::todo_view::TodoViewState::new(
+            w.projects[1].path.clone(),
+        ));
+
+        assert_eq!(w.active_project_index, 0);
+        send(&mut w, Message::SwitchProject(1));
+        assert_eq!(w.active_project_index, 1);
+    }
+
+    #[test]
+    fn switch_project_out_of_bounds_ignored() {
+        let mut w = ws();
+        send(&mut w, Message::SwitchProject(99));
+        assert_eq!(w.active_project_index, 0);
+    }
+
+    // -------------------------------------------------------------------
+    // Close/Quit flow (no active sessions = immediate exit request)
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn close_active_session_with_none_is_noop() {
+        let mut w = ws();
+        assert!(w.projects[0].active_session.is_none());
+        send(&mut w, Message::CloseActiveSession);
+        assert!(w.projects[0].active_session.is_none());
+    }
+
+    // -------------------------------------------------------------------
+    // Code editor action
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn code_editor_action_marks_dirty() {
+        let mut w = ws();
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("test_edit.txt");
+        std::fs::write(&test_file, "original").unwrap();
+        send(&mut w, Message::OpenFile(test_file.clone()));
+        assert!(!w.code_views[0].dirty);
+
+        use iced::widget::text_editor;
+        send(
+            &mut w,
+            Message::CodeEditorAction(text_editor::Action::Edit(
+                text_editor::Edit::Insert('x'),
+            )),
+        );
+        assert!(w.code_views[0].dirty);
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    // -------------------------------------------------------------------
+    // File change notification
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn file_changed_reloads_code_view() {
+        let mut w = ws();
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("test_watch.txt");
+        std::fs::write(&test_file, "version1").unwrap();
+
+        send(&mut w, Message::OpenFile(test_file.clone()));
+        assert!(w.code_views[0].raw_text.contains("version1"));
+
+        std::fs::write(&test_file, "version2").unwrap();
+        send(&mut w, Message::FileChanged(test_file.clone()));
+        assert!(w.code_views[0].raw_text.contains("version2"));
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    #[test]
+    fn file_changed_marks_diff_stale() {
+        let mut w = ws();
+        w.diff_views[0].stale = false;
+        let path = w.projects[0].path.join("something.rs");
+        send(&mut w, Message::FileChanged(path));
+        assert!(w.diff_views[0].stale);
+    }
+
+    // -------------------------------------------------------------------
+    // Multi-step flow: open file picker → select → verify code view
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn open_file_via_picker_flow() {
+        let mut w = ws();
+        let project_path = w.projects[0].path.clone();
+        let test_file = project_path.join("picker_test.rs");
+        std::fs::write(&test_file, "fn picker_test() {}").unwrap();
+
+        send(&mut w, Message::OpenPicker(PickerKind::File));
+        let picker = w.picker.as_ref().unwrap();
+        let file_idx = picker
+            .items
+            .iter()
+            .position(|i| i.label.contains("picker_test.rs"));
+
+        if let Some(idx) = file_idx {
+            // Navigate to the item
+            for _ in 0..idx {
+                send(&mut w, Message::PickerSelectNext);
+            }
+            send(&mut w, Message::PickerConfirm);
+
+            assert!(w.picker.is_none());
+            assert!(w.code_views[0].raw_text.contains("fn picker_test"));
+            assert_eq!(w.panes[w.active_pane_index].kind, PaneContentKind::CodeViewer);
+        }
+
+        let _ = std::fs::remove_file(&test_file);
+    }
+
+    // -------------------------------------------------------------------
+    // Toggle layout via command palette
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn command_palette_toggle_layout() {
+        let mut w = ws();
+        assert_eq!(w.layout, PaneLayoutKind::Three);
+
+        send(&mut w, Message::OpenPicker(PickerKind::Command));
+        // "Toggle Layout" is the second item
+        send(&mut w, Message::PickerSelectNext);
+        send(&mut w, Message::PickerConfirm);
+
+        assert!(w.picker.is_none());
+        assert_eq!(w.layout, PaneLayoutKind::One);
+    }
+
+    // -------------------------------------------------------------------
+    // Keyboard event dispatch
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn keyboard_event_dispatches_keybinding() {
+        let mut w = ws();
+        assert!(!w.keybinding_help.visible);
+
+        let event = iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Character("?".into()),
+            modified_key: iced::keyboard::Key::Character("?".into()),
+            physical_key: iced::keyboard::key::Physical::Unidentified(
+                iced::keyboard::key::NativeCode::Unidentified,
+            ),
+            location: iced::keyboard::Location::Standard,
+            modifiers: iced::keyboard::Modifiers::CTRL,
+            text: None,
+        };
+        send(&mut w, Message::KeyboardEvent(event));
+        assert!(w.keybinding_help.visible);
+    }
+
+    // -------------------------------------------------------------------
+    // None message is no-op
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn none_message_is_noop() {
+        let mut w = ws();
+        let layout_before = w.layout;
+        let pane_before = w.active_pane_index;
+        send(&mut w, Message::None);
+        assert_eq!(w.layout, layout_before);
+        assert_eq!(w.active_pane_index, pane_before);
     }
 }

@@ -143,4 +143,24 @@ impl ProjectState {
             .find(|(_, s)| s.label == label)
             .map(|(&id, s)| (id, s))
     }
+
+    #[cfg(test)]
+    pub fn for_testing(path: PathBuf, name: String) -> Self {
+        Self {
+            path,
+            name,
+            sessions: HashMap::new(),
+            active_session: None,
+            next_session_id: 0,
+            todo_document: TodoDocument::default(),
+            todo_text: String::new(),
+            todo_dirty: false,
+            diff_text: String::new(),
+            diff_stale: true,
+            unreviewed_files: Vec::new(),
+            problems: Vec::new(),
+            script_problems: Vec::new(),
+            last_script_run: None,
+        }
+    }
 }
