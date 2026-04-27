@@ -117,6 +117,123 @@ impl From<&PaletteColors> for Palette {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rgba_from_rgb8() {
+        let c = Rgba::from_rgb8(255, 0, 128);
+        assert_eq!(c.r, 1.0);
+        assert_eq!(c.g, 0.0);
+        assert!((c.b - 128.0 / 255.0).abs() < 1e-6);
+        assert_eq!(c.a, 1.0);
+    }
+
+    #[test]
+    fn rgba_from_rgba8_with_alpha() {
+        let c = Rgba::from_rgba8(0, 0, 0, 127);
+        assert_eq!(c.r, 0.0);
+        assert!((c.a - 127.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hex_to_rgba_6_digit() {
+        let c = hex_to_rgba("#FF8000");
+        assert_eq!(c.r, 1.0);
+        assert!((c.g - 128.0 / 255.0).abs() < 1e-6);
+        assert_eq!(c.b, 0.0);
+        assert_eq!(c.a, 1.0);
+    }
+
+    #[test]
+    fn hex_to_rgba_8_digit() {
+        let c = hex_to_rgba("#FF800080");
+        assert_eq!(c.r, 1.0);
+        assert!((c.a - 128.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hex_to_rgba_without_hash() {
+        let c = hex_to_rgba("00FF00");
+        assert_eq!(c.r, 0.0);
+        assert_eq!(c.g, 1.0);
+        assert_eq!(c.b, 0.0);
+    }
+
+    #[test]
+    fn default_palette_has_nonzero_foreground() {
+        let p = Palette::default();
+        assert!(p.foreground.r > 0.0 || p.foreground.g > 0.0 || p.foreground.b > 0.0);
+    }
+
+    #[test]
+    fn palette_resolve_spec_color() {
+        let p = Palette::default();
+        let rgb = alacritty_terminal::vte::ansi::Rgb { r: 100, g: 200, b: 50 };
+        let c = p.resolve(&Color::Spec(rgb));
+        assert!((c.r - 100.0 / 255.0).abs() < 1e-6);
+        assert!((c.g - 200.0 / 255.0).abs() < 1e-6);
+        assert!((c.b - 50.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn palette_resolve_indexed_color() {
+        let p = Palette::default();
+        let c = p.resolve(&Color::Indexed(232));
+        assert!(c.r == c.g && c.g == c.b, "grayscale index 232 should be gray");
+    }
+
+    #[test]
+    fn palette_resolve_fg_default() {
+        let p = Palette::default();
+        let fg = p.resolve_fg(&Color::Named(NamedColor::Foreground));
+        assert_eq!(fg, p.foreground);
+    }
+
+    #[test]
+    fn palette_resolve_bg_default() {
+        let p = Palette::default();
+        let bg = p.resolve_bg(&Color::Named(NamedColor::Background));
+        assert_eq!(bg, p.background);
+    }
+
+    #[test]
+    fn palette_resolve_fg_named_not_foreground() {
+        let p = Palette::default();
+        let red = p.resolve_fg(&Color::Named(NamedColor::Red));
+        assert!(red.r > red.g, "red should have more red than green");
+    }
+
+    #[test]
+    fn palette_for_dark_appearance() {
+        let p = Palette::for_appearance(Appearance::Dark);
+        assert!(p.background.r < 0.3, "dark theme background should be dark");
+    }
+
+    #[test]
+    fn palette_216_color_cube_boundaries() {
+        let p = Palette::default();
+        let black_cube = p.resolve(&Color::Indexed(16));
+        assert_eq!(black_cube.r, 0.0);
+        assert_eq!(black_cube.g, 0.0);
+        assert_eq!(black_cube.b, 0.0);
+
+        let white_cube = p.resolve(&Color::Indexed(231));
+        assert!(white_cube.r > 0.9);
+        assert!(white_cube.g > 0.9);
+        assert!(white_cube.b > 0.9);
+    }
+
+    #[test]
+    fn palette_grayscale_ramp_ascending() {
+        let p = Palette::default();
+        let dark = p.resolve(&Color::Indexed(232));
+        let light = p.resolve(&Color::Indexed(255));
+        assert!(light.r > dark.r);
+    }
+}
+
 impl Palette {
     /// Resolve an alacritty Color to Rgba.
     pub fn resolve(&self, color: &Color) -> Rgba {
