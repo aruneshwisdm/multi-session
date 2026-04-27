@@ -108,3 +108,107 @@ impl PickerState {
         .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_items() -> Vec<PickerItem> {
+        vec![
+            PickerItem {
+                label: "alpha".into(),
+                detail: String::new(),
+                data: PickerItemData::Command("a".into()),
+            },
+            PickerItem {
+                label: "beta".into(),
+                detail: String::new(),
+                data: PickerItemData::Command("b".into()),
+            },
+            PickerItem {
+                label: "gamma".into(),
+                detail: String::new(),
+                data: PickerItemData::Command("c".into()),
+            },
+        ]
+    }
+
+    #[test]
+    fn new_picker_starts_empty() {
+        let p = PickerState::new(PickerKind::File);
+        assert!(p.items.is_empty());
+        assert_eq!(p.selected_index, 0);
+        assert!(p.query.is_empty());
+    }
+
+    #[test]
+    fn select_next_increments() {
+        let mut p = PickerState::new(PickerKind::Command);
+        p.items = sample_items();
+        assert_eq!(p.selected_index, 0);
+        p.select_next();
+        assert_eq!(p.selected_index, 1);
+        p.select_next();
+        assert_eq!(p.selected_index, 2);
+    }
+
+    #[test]
+    fn select_next_clamps_at_end() {
+        let mut p = PickerState::new(PickerKind::Command);
+        p.items = sample_items();
+        p.selected_index = 2;
+        p.select_next();
+        assert_eq!(p.selected_index, 2);
+    }
+
+    #[test]
+    fn select_prev_decrements() {
+        let mut p = PickerState::new(PickerKind::Command);
+        p.items = sample_items();
+        p.selected_index = 2;
+        p.select_prev();
+        assert_eq!(p.selected_index, 1);
+        p.select_prev();
+        assert_eq!(p.selected_index, 0);
+    }
+
+    #[test]
+    fn select_prev_clamps_at_zero() {
+        let mut p = PickerState::new(PickerKind::Command);
+        p.items = sample_items();
+        p.selected_index = 0;
+        p.select_prev();
+        assert_eq!(p.selected_index, 0);
+    }
+
+    #[test]
+    fn selected_item_returns_correct_item() {
+        let mut p = PickerState::new(PickerKind::Command);
+        p.items = sample_items();
+        p.selected_index = 1;
+        assert_eq!(p.selected_item().unwrap().label, "beta");
+    }
+
+    #[test]
+    fn selected_item_empty_returns_none() {
+        let p = PickerState::new(PickerKind::Command);
+        assert!(p.selected_item().is_none());
+    }
+
+    #[test]
+    fn filter_resets_selected_index() {
+        let mut p = PickerState::new(PickerKind::File);
+        p.items = sample_items();
+        p.selected_index = 2;
+        p.filter("test");
+        assert_eq!(p.selected_index, 0);
+        assert_eq!(p.query, "test");
+    }
+
+    #[test]
+    fn select_next_on_empty_stays_zero() {
+        let mut p = PickerState::new(PickerKind::File);
+        p.select_next();
+        assert_eq!(p.selected_index, 0);
+    }
+}
