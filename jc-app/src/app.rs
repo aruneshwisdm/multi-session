@@ -1,5 +1,6 @@
-use iced::{Element, Subscription, Task, Theme};
 use iced::futures::SinkExt;
+use iced::{Element, Subscription, Task, Theme};
+use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -8,14 +9,12 @@ use crate::views::picker::PickerState;
 use crate::views::workspace::{Message, Workspace};
 use jc_core::config::{AppConfig, AppState};
 
-/// Flags passed to the iced application on startup.
 pub struct Flags {
     pub state: AppState,
     pub config: AppConfig,
     pub ipc_rx: flume::Receiver<PathBuf>,
 }
 
-/// Run the iced application.
 pub fn run(state: AppState, config: AppConfig, ipc_rx: flume::Receiver<PathBuf>) {
     let flags = Flags { state, config, ipc_rx };
 
@@ -32,20 +31,13 @@ pub fn run(state: AppState, config: AppConfig, ipc_rx: flume::Receiver<PathBuf>)
 
 fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
     match message {
-        // Terminal
-        Message::TerminalOutput(session_id, data) => {
-            let project = workspace.active_project_mut();
-            if let Some(_session) = project.sessions.get_mut(&session_id) {
-                // Feed data to alacritty terminal emulator.
-                // Feed PTY output to the terminal emulator.
-                // Full VTE parsing will be added when terminal canvas rendering
-                // is implemented. For now, data is captured but not parsed.
-                let _ = &data;
-            }
+        Message::TerminalOutput(_session_id, _data) => {
+            // VTE processing happens in the PTY reader thread.
+            // This message is no longer used but kept for compatibility.
         }
         Message::TerminalEvent(session_id, event_kind) => {
-            use crate::views::workspace::TerminalEventKind;
             use crate::views::session_state::PendingEvent;
+            use crate::views::workspace::TerminalEventKind;
             let project = workspace.active_project_mut();
             if let Some(session) = project.sessions.get_mut(&session_id) {
                 match event_kind {
@@ -53,20 +45,16 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                         session.pending_events.insert(PendingEvent::TerminalBell);
                     }
                     TerminalEventKind::Exit => {
-                        // Terminal process exited — mark session not busy.
                         session.busy = false;
                     }
-                    TerminalEventKind::Wakeup => {
-                        // Trigger re-render (handled by returning from update).
-                    }
+                    TerminalEventKind::Wakeup => {}
                 }
             }
         }
         Message::TerminalResize(_cols, _rows) => {
-            // Will be implemented when terminal canvas rendering is added.
+            // TODO: propagate resize to all active PTYs
         }
 
-        // Workspace navigation
         Message::SwitchSession(id) => workspace.switch_session(id),
         Message::NewSession => workspace.create_session(),
         Message::CloseSession(id) => workspace.close_session(id),
@@ -82,18 +70,12 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             workspace.show_in_pane(pane_idx, kind);
         }
 
-        // Hooks
         Message::HookReceived(event) => {
             workspace.handle_hook_event(event);
         }
 
-        // IPC
         Message::IpcProjectOpen(path) => {
-            // Register new project if needed.
-            let already_exists = workspace
-                .projects
-                .iter()
-                .any(|p| p.path == path);
+            let already_exists = workspace.projects.iter().any(|p| p.path == path);
             if !already_exists {
                 let name = path
                     .file_name()
@@ -120,12 +102,10 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             }
         }
 
-        // Picker
         Message::OpenPicker(kind) => {
             use crate::views::picker::{PickerItem, PickerItemData, PickerKind};
             let mut picker = PickerState::new(kind.clone());
 
-            // Pre-populate picker items based on kind.
             match &kind {
                 PickerKind::Session => {
                     let project = workspace.active_project();
@@ -165,22 +145,17 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                         PickerItem {
                             label: "Toggle Layout".into(),
                             detail: "Switch between 1/2/3 pane layout".into(),
-                            data: PickerItemData::Command(
-                                "toggle_layout".into(),
-                            ),
+                            data: PickerItemData::Command("toggle_layout".into()),
                         },
                     ];
                 }
                 PickerKind::File => {
-                    // Walk project directory for common source files.
                     let project_path =
                         workspace.projects[workspace.active_project_index]
                             .path
                             .clone();
                     let mut files = Vec::new();
-                    if let Ok(entries) =
-                        walkdir_collect(&project_path, 500)
-                    {
+                    if let Ok(entries) = walkdir_collect(&project_path, 500) {
                         files = entries;
                     }
                     picker.items = files
@@ -229,24 +204,15 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                             return update(workspace, Message::OpenFile(path));
                         }
                         crate::views::picker::PickerItemData::Session(id) => {
-                            return update(
-                                workspace,
-                                Message::SwitchSession(id),
-                            );
+                            return update(workspace, Message::SwitchSession(id));
                         }
                         crate::views::picker::PickerItemData::Project(idx) => {
-                            return update(
-                                workspace,
-                                Message::SwitchProject(idx),
-                            );
+                            return update(workspace, Message::SwitchProject(idx));
                         }
                         crate::views::picker::PickerItemData::Command(cmd) => {
                             match cmd.as_str() {
                                 "new_session" => {
-                                    return update(
-                                        workspace,
-                                        Message::NewSession,
-                                    );
+                                    return update(workspace, Message::NewSession);
                                 }
                                 "toggle_layout" => {
                                     let next = match workspace.layout {
@@ -260,22 +226,16 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                                             crate::views::workspace::PaneLayoutKind::One
                                         }
                                     };
-                                    return update(
-                                        workspace,
-                                        Message::SetLayout(next),
-                                    );
+                                    return update(workspace, Message::SetLayout(next));
                                 }
                                 _ => {}
                             }
                         }
                         crate::views::picker::PickerItemData::Line(line) => {
                             let pi = workspace.active_project_index;
-                            workspace.code_views[pi]
-                                .scroll_offset = line as f32;
+                            workspace.code_views[pi].scroll_offset = line as f32;
                         }
-                        crate::views::picker::PickerItemData::Snippet(_) => {
-                            // Snippet insertion needs terminal input support.
-                        }
+                        crate::views::picker::PickerItemData::Snippet(_) => {}
                     }
                 } else {
                     workspace.picker = None;
@@ -286,7 +246,6 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             workspace.picker = None;
         }
 
-        // Code/Diff
         Message::OpenFile(path) => {
             let pi = workspace.active_project_index;
             workspace.code_views[pi].open_file(path);
@@ -302,39 +261,43 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
         Message::DiffReviewed => {
             let pi = workspace.active_project_index;
             let dv = &mut workspace.diff_views[pi];
-            if let Some(fd) =
-                dv.file_diffs.get_mut(dv.current_file_index)
-            {
+            if let Some(fd) = dv.file_diffs.get_mut(dv.current_file_index) {
                 fd.reviewed = true;
             }
         }
 
-        // Keybinding help
-        Message::ToggleKeybindingHelp => {
-            workspace.keybinding_help.visible =
-                !workspace.keybinding_help.visible;
+        Message::CodeEditorAction(action) => {
+            let pi = workspace.active_project_index;
+            workspace.code_views[pi].perform_action(action);
+        }
+        Message::TodoEditorAction(action) => {
+            let pi = workspace.active_project_index;
+            workspace.todo_views[pi].perform_action(action);
+        }
+        Message::GlobalTodoEditorAction(action) => {
+            workspace.global_todo.perform_action(action);
         }
 
-        // Problems
+        Message::ToggleKeybindingHelp => {
+            workspace.keybinding_help.visible = !workspace.keybinding_help.visible;
+        }
+
         Message::NextProblem => {
             workspace.next_problem();
         }
         Message::JumpToWait => {
-            let pane_idx = workspace
-                .resolve_pane_for_kind(PaneContentKind::TodoEditor);
+            let pane_idx =
+                workspace.resolve_pane_for_kind(PaneContentKind::TodoEditor);
             workspace.show_in_pane(pane_idx, PaneContentKind::TodoEditor);
         }
 
-        // Close/Quit
         Message::RequestClose | Message::RequestQuit => {
             let is_quit = matches!(message, Message::RequestQuit);
             let conflicts = workspace.save_all_dirty();
             let active_count = workspace.active_session_count();
             if conflicts.is_empty() && active_count == 0 {
                 for project in &workspace.projects {
-                    let _ = jc_core::hooks_settings::uninstall_hooks(
-                        &project.path,
-                    );
+                    let _ = jc_core::hooks_settings::uninstall_hooks(&project.path);
                 }
                 return iced::exit();
             }
@@ -347,10 +310,8 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
         }
         Message::ConfirmClose => {
             workspace.close_confirm = None;
-            // Uninstall hooks before exit.
             for project in &workspace.projects {
-                let _ =
-                    jc_core::hooks_settings::uninstall_hooks(&project.path);
+                let _ = jc_core::hooks_settings::uninstall_hooks(&project.path);
             }
             return iced::exit();
         }
@@ -358,31 +319,53 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             workspace.close_confirm = None;
         }
 
-        // Tick — periodic refresh
         Message::Tick => {
             for project in &mut workspace.projects {
                 project.refresh_problems();
             }
         }
 
-        // Keyboard
         Message::KeyboardEvent(event) => {
+            // First try keybindings (Ctrl+key shortcuts)
             if let Some(msg) =
                 crate::views::workspace::keybindings::handle_key_event(&event)
             {
                 return update(workspace, msg);
             }
+
+            // If active pane is a terminal, forward keystroke to PTY
+            let active_kind = workspace.panes[workspace.active_pane_index].kind;
+            let is_terminal = matches!(
+                active_kind,
+                PaneContentKind::ClaudeTerminal | PaneContentKind::GeneralTerminal
+            );
+            if is_terminal {
+                if let Some(keystroke) =
+                    crate::views::workspace::terminal_input::iced_event_to_keystroke(&event)
+                {
+                    let project = workspace.active_project_mut();
+                    if let Some(session) = project.active_session_mut() {
+                        let terminal = if active_kind == PaneContentKind::ClaudeTerminal {
+                            &session.claude_terminal
+                        } else {
+                            &session.general_terminal
+                        };
+                        let mode = terminal.state.with_term(|term| *term.mode());
+                        if let Some(bytes) = jc_terminal::keystroke_to_bytes(&keystroke, mode) {
+                            let _ = terminal.pty.write_all(&bytes);
+                        }
+                    }
+                }
+            }
         }
 
         Message::NotificationAction(_) => {}
         Message::FileChanged(path) => {
-            // Reload code view if the changed file is currently open.
             let pi = workspace.active_project_index;
             let cv = &workspace.code_views[pi];
             if cv.file_path.as_ref() == Some(&path) && !cv.dirty {
                 workspace.code_views[pi].open_file(path.clone());
             }
-            // Refresh TODO view if TODO.md changed.
             let todo_path = workspace.projects[pi].path.join("TODO.md");
             if path == todo_path && !workspace.todo_views[pi].dirty {
                 workspace.todo_views[pi] =
@@ -390,7 +373,6 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                         workspace.projects[pi].path.clone(),
                     );
             }
-            // Mark diff as stale.
             workspace.diff_views[pi].stale = true;
         }
         Message::None => {}
@@ -409,7 +391,6 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
     // Keyboard events
     subscriptions.push(
         iced::keyboard::on_key_press(|key, modifiers| {
-            // Directly map key presses to messages via keybinding handler.
             let event = iced::keyboard::Event::KeyPressed {
                 key: key.clone(),
                 location: iced::keyboard::Location::Standard,
@@ -424,7 +405,7 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
         }),
     );
 
-    // Periodic tick for problem refresh (every 2 seconds)
+    // Periodic tick
     subscriptions.push(
         iced::time::every(Duration::from_secs(2)).map(|_| Message::Tick),
     );
@@ -445,7 +426,6 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
                                     .await;
                             }
                             Err(_) => {
-                                // Channel closed, sleep forever.
                                 std::future::pending::<()>().await;
                             }
                         }
@@ -480,7 +460,7 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
         ));
     }
 
-    // File watcher subscription — watches project dirs for changes.
+    // File watcher
     let watch_paths: Vec<PathBuf> = workspace
         .projects
         .iter()
@@ -527,8 +507,84 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
         ));
     }
 
-    // PTY reader subscriptions for all active sessions.
-    // Terminal canvas rendering is deferred — PTY output is not yet consumed.
+    // PTY reader subscriptions — one per terminal
+    for project in &workspace.projects {
+        for (&session_id, session) in &project.sessions {
+            for (is_claude, terminal) in [
+                (true, &session.claude_terminal),
+                (false, &session.general_terminal),
+            ] {
+                let label = if is_claude { "claude" } else { "general" };
+                let sub_id = format!("pty-{session_id}-{label}");
+                let reader_slot = terminal.reader.clone();
+                let term_handle = terminal.state.term_handle();
+                let event_rx = terminal.event_rx.clone();
+
+                subscriptions.push(Subscription::run_with_id(
+                    sub_id,
+                    iced::stream::channel(256, move |mut sender| {
+                        async move {
+                            // Take reader (only succeeds once per terminal)
+                            let reader = { reader_slot.lock().take() };
+                            if let Some(mut reader) = reader {
+                                let term_handle = term_handle.clone();
+                                std::thread::spawn(move || {
+                                    let mut processor: alacritty_terminal::vte::ansi::Processor = alacritty_terminal::vte::ansi::Processor::new();
+                                    let mut buf = [0u8; 4096];
+                                    loop {
+                                        match reader.read(&mut buf) {
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                let mut term = term_handle.lock();
+                                                processor.advance(&mut *term, &buf[..n]);
+                                            }
+                                            Err(_) => break,
+                                        }
+                                    }
+                                });
+                            }
+
+                            // Forward terminal events to iced
+                            loop {
+                                match event_rx.recv_async().await {
+                                    Ok(event) => {
+                                        use crate::views::workspace::TerminalEventKind;
+                                        use jc_terminal::TerminalEvent;
+                                        let msg = match event {
+                                            TerminalEvent::Wakeup => {
+                                                Message::TerminalEvent(
+                                                    session_id,
+                                                    TerminalEventKind::Wakeup,
+                                                )
+                                            }
+                                            TerminalEvent::Bell => {
+                                                Message::TerminalEvent(
+                                                    session_id,
+                                                    TerminalEventKind::Bell,
+                                                )
+                                            }
+                                            TerminalEvent::Exit
+                                            | TerminalEvent::ChildExit => {
+                                                Message::TerminalEvent(
+                                                    session_id,
+                                                    TerminalEventKind::Exit,
+                                                )
+                                            }
+                                            _ => continue,
+                                        };
+                                        let _ = sender.send(msg).await;
+                                    }
+                                    Err(_) => {
+                                        std::future::pending::<()>().await;
+                                    }
+                                }
+                            }
+                        }
+                    }),
+                ));
+            }
+        }
+    }
 
     Subscription::batch(subscriptions)
 }
@@ -537,8 +593,6 @@ fn theme(_workspace: &Workspace) -> Theme {
     Theme::Dark
 }
 
-/// Walk a directory, collecting up to `limit` source files.
-/// Skips hidden dirs, target/, node_modules/, .git/.
 fn walkdir_collect(
     root: &std::path::Path,
     limit: usize,

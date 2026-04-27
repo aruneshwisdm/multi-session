@@ -27,7 +27,7 @@ portable-pty = "0.9"
 parking_lot = "0.12"
 
 # GUI
-iced = { version = "0.13", features = ["wgpu", "tokio", "canvas"] }
+iced = { version = "0.13", features = ["wgpu", "tokio", "canvas", "highlighter"] }
 
 # Git & diff
 git2 = { version = "0.20", default-features = false }

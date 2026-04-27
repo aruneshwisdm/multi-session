@@ -1,9 +1,11 @@
 use jc_core::problem::{AppTodoProblem, ClaudeProblem, SessionProblem, TerminalProblem};
 use jc_core::todo::TodoProblem;
 use jc_terminal::{PtyHandle, TerminalEvent, TerminalState};
+use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::pane::PaneContentKind;
 
@@ -25,7 +27,7 @@ pub struct SavedPaneLayout {
 /// Per-terminal PTY + emulator state.
 pub struct Terminal {
     pub pty: PtyHandle,
-    pub reader: Option<Box<dyn Read + Send>>,
+    pub reader: Arc<Mutex<Option<Box<dyn Read + Send>>>>,
     pub state: TerminalState,
     pub event_rx: flume::Receiver<TerminalEvent>,
 }
@@ -36,7 +38,7 @@ impl Terminal {
         let (pty, reader) =
             PtyHandle::spawn_shell(80, 24, Some(project_path)).expect("failed to spawn shell PTY");
         let state = TerminalState::new(80, 24, event_tx);
-        Self { pty, reader: Some(reader), state, event_rx }
+        Self { pty, reader: Arc::new(Mutex::new(Some(reader))), state, event_rx }
     }
 
     fn spawn_command(command: &str, project_path: &Path) -> Self {
@@ -44,7 +46,7 @@ impl Terminal {
         match PtyHandle::spawn_command(command, 80, 24, Some(project_path)) {
             Ok((pty, reader)) => {
                 let state = TerminalState::new(80, 24, event_tx);
-                Self { pty, reader: Some(reader), state, event_rx }
+                Self { pty, reader: Arc::new(Mutex::new(Some(reader))), state, event_rx }
             }
             Err(e) => {
                 eprintln!("failed to spawn command '{command}': {e}");
@@ -52,11 +54,6 @@ impl Terminal {
                 Self::spawn_shell(project_path)
             }
         }
-    }
-
-    /// Take the reader for use in a subscription. Returns None if already taken.
-    pub fn take_reader(&mut self) -> Option<Box<dyn Read + Send>> {
-        self.reader.take()
     }
 }
 

@@ -1,6 +1,7 @@
 mod problems;
 mod render;
 pub(crate) mod keybindings;
+pub(crate) mod terminal_input;
 
 use crate::views::code_view::CodeViewState;
 use crate::views::diff_view::DiffViewState;
@@ -10,6 +11,7 @@ use crate::views::picker::{PickerKind, PickerState};
 use crate::views::project_state::ProjectState;
 use crate::views::session_state::{PendingEvent, SessionId, SessionState};
 use crate::views::todo_view::TodoViewState;
+use iced::widget::text_editor;
 use jc_core::config::{AppConfig, AppState};
 use jc_core::hooks::{HookEvent, HookEventKind, HookServer};
 use jc_core::snippets::{self, SnippetDocument};
@@ -58,6 +60,11 @@ pub enum Message {
     OpenFile(PathBuf),
     SaveFile,
     DiffReviewed,
+
+    // Text editor actions
+    CodeEditorAction(text_editor::Action),
+    TodoEditorAction(text_editor::Action),
+    GlobalTodoEditorAction(text_editor::Action),
 
     // Keybinding help
     ToggleKeybindingHelp,

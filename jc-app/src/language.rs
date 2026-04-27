@@ -74,4 +74,27 @@ impl Language {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         Self::from_extension(ext)
     }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Rust => "rs",
+            Self::JavaScript => "js",
+            Self::TypeScript => "ts",
+            Self::Tsx => "tsx",
+            Self::Python => "py",
+            Self::Ruby => "rb",
+            Self::Go => "go",
+            Self::Markdown => "md",
+            Self::Toml => "toml",
+            Self::Json => "json",
+            Self::Yaml => "yml",
+            Self::Html => "html",
+            Self::Css => "css",
+            Self::C => "c",
+            Self::Cpp => "cpp",
+            Self::Java => "java",
+            Self::Bash => "sh",
+            Self::Text => "txt",
+        }
+    }
 }

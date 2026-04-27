@@ -1,11 +1,10 @@
-use iced::widget::{button, column, container, horizontal_rule, row, text};
-use iced::{Element, Length};
+use iced::widget::{button, column, container, horizontal_rule, rich_text, row, scrollable, span, text};
+use iced::{Color, Element, Font, Length};
 
 use super::{Message, Workspace};
 use crate::views::pane::PaneContentKind;
 
 impl Workspace {
-    /// Render the full application view.
     pub fn view_app(&self) -> Element<'_, Message> {
         let title_bar = self.render_title_bar();
         let pane_area = self.render_panes();
@@ -15,12 +14,9 @@ impl Workspace {
             .width(Length::Fill)
             .height(Length::Fill);
 
-        // Overlay picker if active.
-        // (In a real implementation, this would be a modal overlay)
         let base: Element<Message> = layout.into();
 
         if let Some(picker) = &self.picker {
-            // Show picker over content (simplified — no true overlay yet)
             column![base, picker.view()].into()
         } else if self.keybinding_help.visible {
             column![base, self.keybinding_help.view()].into()
@@ -51,7 +47,6 @@ impl Workspace {
             text(title).size(14)
         };
 
-        // Session tabs
         let tabs: Vec<Element<Message>> = project
             .sessions
             .iter()
@@ -147,24 +142,85 @@ impl Workspace {
 
     fn render_terminal_pane(&self, project_index: usize, is_claude: bool) -> Element<'_, Message> {
         let project = &self.projects[project_index];
-        if let Some(session) = project.active_session() {
-            let label = if is_claude { "Claude" } else { "Terminal" };
-            let busy_indicator = if is_claude && session.busy {
-                " (working...)"
-            } else {
-                ""
-            };
-            // Terminal rendering via canvas will be added in Phase 3b.
-            // For now, show a placeholder with PTY status.
-            text(format!(
-                "[{label}{busy_indicator}] Terminal output renders here.\nSession: {}\nType in the terminal pane to interact.",
-                session.label
-            ))
-            .size(13)
-            .into()
+        let Some(session) = project.active_session() else {
+            return text("No active session").size(13).into();
+        };
+
+        let terminal = if is_claude {
+            &session.claude_terminal
         } else {
-            text("No active session").size(13).into()
+            &session.general_terminal
+        };
+
+        let grid = terminal.state.with_term(|term| {
+            jc_terminal::render_grid(term, &self.palette)
+        });
+
+        let bg_color = Color::from_rgba(
+            self.palette.background.r,
+            self.palette.background.g,
+            self.palette.background.b,
+            self.palette.background.a,
+        );
+
+        let mut line_elements: Vec<Element<Message>> = Vec::with_capacity(grid.rows);
+        for (row_idx, line) in grid.lines.iter().enumerate() {
+            let mut spans = Vec::new();
+            let mut run_text = String::new();
+            let mut run_fg = jc_terminal::Rgba::new(1.0, 1.0, 1.0, 1.0);
+            let mut run_bold = false;
+
+            for (col_idx, cell) in line.iter().enumerate() {
+                let is_cursor = grid.cursor.visible
+                    && row_idx == grid.cursor.line
+                    && col_idx == grid.cursor.col;
+
+                let fg = if is_cursor { cell.bg } else { cell.fg };
+                let bold = cell.bold;
+
+                if (!approx_eq(fg, run_fg) || bold != run_bold) && !run_text.is_empty() {
+                    let s = span(std::mem::take(&mut run_text))
+                        .color(rgba_to_color(run_fg));
+                    spans.push(if run_bold { s.font(Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE }) } else { s.font(Font::MONOSPACE) });
+                }
+
+                run_fg = fg;
+                run_bold = bold;
+                let ch = if cell.c == '\0' { ' ' } else { cell.c };
+                run_text.push(ch);
+            }
+
+            if !run_text.is_empty() {
+                let s = span(run_text).color(rgba_to_color(run_fg));
+                spans.push(if run_bold { s.font(Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE }) } else { s.font(Font::MONOSPACE) });
+            }
+
+            line_elements.push(rich_text(spans).size(13).into());
         }
+
+        let busy_indicator: Element<Message> = if is_claude && session.busy {
+            container(text("working...").size(11).color(Color::from_rgb(0.4, 0.8, 0.4)))
+                .padding([2, 4])
+                .into()
+        } else {
+            text("").into()
+        };
+
+        container(
+            column![
+                busy_indicator,
+                scrollable(column(line_elements).spacing(0))
+                    .height(Length::Fill),
+            ]
+            .spacing(0),
+        )
+        .style(move |_theme| container::Style {
+            background: Some(iced::Background::Color(bg_color)),
+            ..Default::default()
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     }
 
     fn pane_title(&self, kind: PaneContentKind) -> String {
@@ -239,4 +295,15 @@ impl Workspace {
         .max_width(400)
         .into()
     }
+}
+
+fn rgba_to_color(rgba: jc_terminal::Rgba) -> Color {
+    Color::from_rgba(rgba.r, rgba.g, rgba.b, rgba.a)
+}
+
+fn approx_eq(a: jc_terminal::Rgba, b: jc_terminal::Rgba) -> bool {
+    (a.r - b.r).abs() < 0.001
+        && (a.g - b.g).abs() < 0.001
+        && (a.b - b.b).abs() < 0.001
+        && (a.a - b.a).abs() < 0.001
 }

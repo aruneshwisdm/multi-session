@@ -1,15 +1,16 @@
 use crate::language::Language;
 use crate::outline;
 use crate::views::compute_checksum;
-use iced::widget::{column, container, row, scrollable, text};
-use iced::Element;
+use iced::widget::{column, container, text, text_editor};
+use iced::{Element, Font, Length};
 use std::path::PathBuf;
 
 use super::workspace::Message;
 
 pub struct CodeViewState {
     pub file_path: Option<PathBuf>,
-    pub content: String,
+    pub content: text_editor::Content,
+    pub raw_text: String,
     pub language: Language,
     pub dirty: bool,
     pub disk_checksum: u64,
@@ -22,7 +23,8 @@ impl Default for CodeViewState {
     fn default() -> Self {
         Self {
             file_path: None,
-            content: String::new(),
+            content: text_editor::Content::new(),
+            raw_text: String::new(),
             language: Language::Text,
             dirty: false,
             disk_checksum: 0,
@@ -35,10 +37,11 @@ impl Default for CodeViewState {
 
 impl CodeViewState {
     pub fn open_file(&mut self, path: PathBuf) {
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
         self.language = Language::from_path(&path);
-        self.disk_checksum = compute_checksum(&content);
-        self.content = content;
+        self.disk_checksum = compute_checksum(&text);
+        self.content = text_editor::Content::with_text(&text);
+        self.raw_text = text;
         self.file_path = Some(path);
         self.dirty = false;
         self.externally_modified = false;
@@ -47,17 +50,28 @@ impl CodeViewState {
 
     pub fn save(&mut self) {
         if let Some(path) = &self.file_path {
-            if let Err(e) = std::fs::write(path, &self.content) {
+            let text = self.content.text();
+            if let Err(e) = std::fs::write(path, &text) {
                 eprintln!("failed to save {}: {e}", path.display());
             } else {
-                self.disk_checksum = compute_checksum(&self.content);
+                self.disk_checksum = compute_checksum(&text);
+                self.raw_text = text;
                 self.dirty = false;
             }
         }
     }
 
+    pub fn perform_action(&mut self, action: text_editor::Action) {
+        let is_edit = action.is_edit();
+        self.content.perform(action);
+        if is_edit {
+            self.dirty = true;
+            self.raw_text = self.content.text();
+        }
+    }
+
     fn update_breadcrumb(&mut self, byte_offset: usize) {
-        let outline_items = outline::compute_outline(&self.content, self.language);
+        let outline_items = outline::compute_outline(&self.raw_text, self.language);
         self.breadcrumb = outline::breadcrumb_at_byte(&outline_items, byte_offset)
             .into_iter()
             .map(|item| item.label.clone())
@@ -76,28 +90,20 @@ impl CodeViewState {
             text("No file open").size(14)
         };
 
-        let body: Element<Message> = if self.content.is_empty() {
-            text("Empty file").size(13).into()
-        } else {
-            let lines: Vec<Element<Message>> = self
-                .content
-                .lines()
-                .enumerate()
-                .map(|(i, line)| {
-                    row![
-                        text(format!("{:>4} ", i + 1)).size(12),
-                        text(line).size(13),
-                    ]
-                    .spacing(4)
-                    .into()
-                })
-                .collect();
+        let editor = text_editor(&self.content)
+            .on_action(Message::CodeEditorAction)
+            .font(Font::MONOSPACE)
+            .size(13)
+            .height(Length::Fill)
+            .highlight(
+                self.language.extension(),
+                iced::highlighter::Theme::SolarizedDark,
+            );
 
-            scrollable(column(lines).spacing(0)).into()
-        };
-
-        container(column![header, body].spacing(4))
+        container(column![header, editor].spacing(4))
             .padding(8)
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 }

@@ -224,7 +224,7 @@ multi-session/
 
 4. **Clone to ext4, not /mnt/c/.** WSL2 file I/O on Windows mounts is significantly slower. Always work from `~/projects/` or similar ext4 path. The planning docs live on the Windows mount for easy access but the source code should not.
 
-5. **Prefer iced_term over custom terminal rendering.** Only fall back to custom `iced::widget::canvas::Program` if `iced_term` doesn't meet requirements (see Risk Register in execution plan).
+5. **Terminal rendering uses `rich_text` spans.** `iced_term` is incompatible with iced 0.13 + alacritty_terminal 0.25. We use `rich_text` with per-cell colored spans extracted by `jc_terminal::render_grid()`. Upgrade to `iced::widget::canvas` for per-cell background colors if needed.
 
 6. **Message-driven architecture.** All state changes go through the iced `Message` enum and `update()`. No direct state mutation from event handlers, subscriptions, or view code.
 
@@ -232,15 +232,22 @@ multi-session/
 
 ## Current Phase
 
-**Phase 5: Packaging & Distribution** — Completed.
+**Phase 6: Feature Parity** — Completed.
 
-All phases (0-5) are done. The app compiles with 0 errors and 0 warnings. 55 tests pass.
+All phases (0-6) are done. The app compiles with 0 errors and 0 warnings. 55 tests pass.
 
-**Remaining work for full feature parity:**
-- Terminal canvas rendering (Phase 3b) — PTY infrastructure is in place, rendering is placeholder
-- VTE parsing integration — deferred until terminal rendering
-- Syntax highlighting in code viewer — tree-sitter grammars are linked but not wired to display
-- Full text editing in code viewer and TODO editor (currently read-only display)
+**Implemented in Phase 6:**
+- Terminal rendering via `rich_text` spans with per-cell ANSI colors from alacritty grid
+- VTE parsing: PTY reader threads feed bytes to `alacritty_terminal::vte::ansi::Processor`, terminal events forwarded via iced `Subscription`
+- Syntax highlighting: `iced_highlighter` (syntect) integrated into `text_editor` for code and TODO views
+- Full text editing: `iced::widget::text_editor` replaces read-only display in code viewer, TODO editor, and global TODO
+- Terminal keyboard input: iced key events → `keystroke_to_bytes()` → PTY write when terminal pane is active
+
+**Remaining for full polish:**
+- Terminal resize propagation (window resize → PTY resize)
+- Text selection and clipboard in terminal pane
+- Custom font loading (Lilex from data/fonts/)
+- Canvas-based terminal rendering for per-cell background colors (current approach only renders foreground colors)
 
 ### Build Notes
 
