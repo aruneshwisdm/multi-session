@@ -93,11 +93,9 @@ jc-app/         — iced GUI application: views, workspace, pickers, keybindings
 - WSLg provides the display server; verify with `echo $DISPLAY`
 - D-Bus must be running for desktop notifications (`systemctl --user start dbus` if needed)
 
-### Known Limitations
+## Documentation
 
-- Terminal canvas rendering is not yet implemented — terminal panes show placeholder text
-- VTE parsing is deferred until terminal rendering is added
-- Syntax highlighting in code viewer is not yet wired up (tree-sitter grammars are linked)
+- [WSL2 Getting Started Guide](docs/WSL2-GUIDE.md) — setup, keybindings, workflow, and troubleshooting for new users
 
 ## License
 
