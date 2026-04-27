@@ -103,3 +103,79 @@ impl TerminalState {
     self.term.clone()
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn new_terminal_state_dimensions() {
+    let (tx, _rx) = flume::unbounded();
+    let state = TerminalState::new(80, 24, tx);
+    state.with_term(|term| {
+      use alacritty_terminal::grid::Dimensions;
+      assert_eq!(term.grid().columns(), 80);
+      assert_eq!(term.grid().screen_lines(), 24);
+    });
+  }
+
+  #[test]
+  fn resize_changes_dimensions() {
+    let (tx, _rx) = flume::unbounded();
+    let state = TerminalState::new(80, 24, tx);
+    state.resize(120, 40);
+    state.with_term(|term| {
+      use alacritty_terminal::grid::Dimensions;
+      assert_eq!(term.grid().columns(), 120);
+      assert_eq!(term.grid().screen_lines(), 40);
+    });
+  }
+
+  #[test]
+  fn with_term_mut_can_modify() {
+    let (tx, _rx) = flume::unbounded();
+    let state = TerminalState::new(80, 24, tx);
+    state.with_term_mut(|term| {
+      use alacritty_terminal::grid::Dimensions;
+      assert_eq!(term.grid().columns(), 80);
+    });
+  }
+
+  #[test]
+  fn term_handle_shares_state() {
+    let (tx, _rx) = flume::unbounded();
+    let state = TerminalState::new(80, 24, tx);
+    let handle = state.term_handle();
+    let term = handle.lock();
+    use alacritty_terminal::grid::Dimensions;
+    assert_eq!(term.grid().columns(), 80);
+  }
+
+  #[test]
+  fn event_proxy_sends_events() {
+    let (tx, rx) = flume::unbounded();
+    let proxy = EventProxy::new(tx);
+    use alacritty_terminal::event::EventListener;
+    proxy.send_event(alacritty_terminal::event::Event::Bell);
+    let event = rx.try_recv().unwrap();
+    assert!(matches!(event, TerminalEvent::Bell));
+  }
+
+  #[test]
+  fn event_proxy_wakeup() {
+    let (tx, rx) = flume::unbounded();
+    let proxy = EventProxy::new(tx);
+    use alacritty_terminal::event::EventListener;
+    proxy.send_event(alacritty_terminal::event::Event::Wakeup);
+    assert!(matches!(rx.try_recv().unwrap(), TerminalEvent::Wakeup));
+  }
+
+  #[test]
+  fn event_proxy_exit() {
+    let (tx, rx) = flume::unbounded();
+    let proxy = EventProxy::new(tx);
+    use alacritty_terminal::event::EventListener;
+    proxy.send_event(alacritty_terminal::event::Event::Exit);
+    assert!(matches!(rx.try_recv().unwrap(), TerminalEvent::Exit));
+  }
+}
