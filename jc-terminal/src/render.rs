@@ -31,6 +31,83 @@ pub struct RenderableGrid {
     pub rows: usize,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::{EventProxy, TermDimensions};
+    use alacritty_terminal::term::{Config, Term};
+
+    fn make_term(cols: usize, rows: usize) -> Term<EventProxy> {
+        let (tx, _rx) = flume::unbounded();
+        let proxy = EventProxy::new(tx);
+        let dims = TermDimensions { cols, rows };
+        Term::new(Config::default(), &dims, proxy)
+    }
+
+    #[test]
+    fn render_grid_dimensions_match() {
+        let term = make_term(80, 24);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        assert_eq!(grid.cols, 80);
+        assert_eq!(grid.rows, 24);
+        assert_eq!(grid.lines.len(), 24);
+        assert_eq!(grid.lines[0].len(), 80);
+    }
+
+    #[test]
+    fn render_grid_cursor_visible_by_default() {
+        let term = make_term(80, 24);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        assert!(grid.cursor.visible);
+        assert_eq!(grid.cursor.line, 0);
+        assert_eq!(grid.cursor.col, 0);
+    }
+
+    #[test]
+    fn render_grid_small_terminal() {
+        let term = make_term(5, 3);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        assert_eq!(grid.cols, 5);
+        assert_eq!(grid.rows, 3);
+        assert_eq!(grid.lines.len(), 3);
+        for line in &grid.lines {
+            assert_eq!(line.len(), 5);
+        }
+    }
+
+    #[test]
+    fn render_grid_cells_have_default_colors() {
+        let term = make_term(10, 5);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        let cell = &grid.lines[0][0];
+        assert_eq!(cell.fg, palette.foreground);
+        assert_eq!(cell.bg, palette.background);
+    }
+
+    #[test]
+    fn render_grid_empty_cells_are_space() {
+        let term = make_term(10, 5);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        assert_eq!(grid.lines[0][0].c, ' ');
+    }
+
+    #[test]
+    fn renderable_cell_default_flags() {
+        let term = make_term(10, 5);
+        let palette = Palette::default();
+        let grid = render_grid(&term, &palette);
+        let cell = &grid.lines[0][0];
+        assert!(!cell.bold);
+        assert!(!cell.italic);
+        assert!(!cell.underline);
+    }
+}
+
 pub fn render_grid(
     term: &alacritty_terminal::term::Term<EventProxy>,
     palette: &Palette,
