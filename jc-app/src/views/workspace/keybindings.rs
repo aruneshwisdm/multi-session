@@ -122,3 +122,181 @@ fn handle_key_press(
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key_event(ch: &str, ctrl: bool, shift: bool) -> keyboard::Event {
+        let mut modifiers = keyboard::Modifiers::empty();
+        if ctrl {
+            modifiers = modifiers | keyboard::Modifiers::CTRL;
+        }
+        if shift {
+            modifiers = modifiers | keyboard::Modifiers::SHIFT;
+        }
+        keyboard::Event::KeyPressed {
+            key: keyboard::Key::Character(ch.into()),
+            modified_key: keyboard::Key::Character(ch.into()),
+            physical_key: keyboard::key::Physical::Unidentified(
+                keyboard::key::NativeCode::Unidentified,
+            ),
+            location: keyboard::Location::Standard,
+            modifiers,
+            text: None,
+        }
+    }
+
+    #[test]
+    fn no_ctrl_returns_none() {
+        let event = key_event("t", false, false);
+        assert!(handle_key_event(&event).is_none());
+    }
+
+    #[test]
+    fn ctrl_t_creates_new_session() {
+        let event = key_event("t", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::NewSession)));
+    }
+
+    #[test]
+    fn ctrl_w_closes_active_session() {
+        let event = key_event("w", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::CloseActiveSession)));
+    }
+
+    #[test]
+    fn ctrl_1_through_9_switch_sessions() {
+        for (ch, expected_id) in [
+            ("1", 0), ("2", 1), ("3", 2), ("4", 3), ("5", 4),
+            ("6", 5), ("7", 6), ("8", 7), ("9", 8),
+        ] {
+            let event = key_event(ch, true, false);
+            match handle_key_event(&event) {
+                Some(Message::SwitchSession(id)) => assert_eq!(id, expected_id, "Ctrl+{ch}"),
+                other => panic!("Ctrl+{ch}: expected SwitchSession({expected_id}), got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn ctrl_shift_c_terminal_copy() {
+        let event = key_event("c", true, true);
+        assert!(matches!(handle_key_event(&event), Some(Message::TerminalCopy)));
+    }
+
+    #[test]
+    fn ctrl_shift_v_terminal_paste() {
+        let event = key_event("v", true, true);
+        assert!(matches!(handle_key_event(&event), Some(Message::TerminalPaste)));
+    }
+
+    #[test]
+    fn ctrl_p_opens_file_picker() {
+        let event = key_event("p", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::OpenPicker(PickerKind::File))
+        ));
+    }
+
+    #[test]
+    fn ctrl_shift_p_opens_command_palette() {
+        let event = key_event("p", true, true);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::OpenPicker(PickerKind::Command))
+        ));
+    }
+
+    #[test]
+    fn ctrl_k_opens_snippet_picker() {
+        let event = key_event("k", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::OpenPicker(PickerKind::Snippet))
+        ));
+    }
+
+    #[test]
+    fn ctrl_o_opens_project_picker() {
+        let event = key_event("o", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::OpenPicker(PickerKind::Project))
+        ));
+    }
+
+    #[test]
+    fn ctrl_l_opens_line_search() {
+        let event = key_event("l", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::OpenPicker(PickerKind::LineSearch))
+        ));
+    }
+
+    #[test]
+    fn ctrl_d_shows_git_diff() {
+        let event = key_event("d", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::ShowPane(PaneContentKind::GitDiff))
+        ));
+    }
+
+    #[test]
+    fn ctrl_j_sets_three_pane_layout() {
+        let event = key_event("j", true, false);
+        assert!(matches!(
+            handle_key_event(&event),
+            Some(Message::SetLayout(PaneLayoutKind::Three))
+        ));
+    }
+
+    #[test]
+    fn ctrl_slash_cycles_pane() {
+        let event = key_event("/", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::CyclePane)));
+    }
+
+    #[test]
+    fn ctrl_s_saves_file() {
+        let event = key_event("s", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::SaveFile)));
+    }
+
+    #[test]
+    fn ctrl_q_quits() {
+        let event = key_event("q", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::RequestQuit)));
+    }
+
+    #[test]
+    fn ctrl_question_toggles_help() {
+        let event = key_event("?", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::ToggleKeybindingHelp)));
+    }
+
+    #[test]
+    fn ctrl_semicolon_next_problem() {
+        let event = key_event(";", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::NextProblem)));
+    }
+
+    #[test]
+    fn unbound_ctrl_key_returns_none() {
+        let event = key_event("z", true, false);
+        assert!(handle_key_event(&event).is_none());
+    }
+
+    #[test]
+    fn key_released_returns_none() {
+        let event = keyboard::Event::KeyReleased {
+            key: keyboard::Key::Character("t".into()),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::CTRL,
+        };
+        assert!(handle_key_event(&event).is_none());
+    }
+}
