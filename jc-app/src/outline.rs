@@ -114,6 +114,104 @@ pub fn breadcrumb_at_byte(outline: &[OutlineItem], byte_offset: usize) -> Vec<&O
     chain
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_language_returns_empty() {
+        let items = compute_outline("hello world", Language::Text);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn rust_outline_finds_functions() {
+        let src = "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {}\n";
+        let items = compute_outline(src, Language::Rust);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"main"), "should find main: {names:?}");
+        assert!(names.contains(&"helper"), "should find helper: {names:?}");
+    }
+
+    #[test]
+    fn rust_outline_finds_structs_and_impls() {
+        let src = "struct Foo {}\nimpl Foo {\n    fn bar(&self) {}\n}\n";
+        let items = compute_outline(src, Language::Rust);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"), "should find Foo: {names:?}");
+        assert!(names.contains(&"bar"), "should find bar: {names:?}");
+    }
+
+    #[test]
+    fn python_outline_finds_classes_and_functions() {
+        let src = "class Foo:\n    def bar(self):\n        pass\n\ndef baz():\n    pass\n";
+        let items = compute_outline(src, Language::Python);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"), "should find Foo: {names:?}");
+        assert!(names.contains(&"bar"), "should find bar: {names:?}");
+        assert!(names.contains(&"baz"), "should find baz: {names:?}");
+    }
+
+    #[test]
+    fn typescript_outline_finds_functions() {
+        let src = "function hello(): void {}\nconst world: number = 42;\n";
+        let items = compute_outline(src, Language::TypeScript);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"hello") || names.contains(&"world"),
+            "should find at least one item: {names:?}");
+    }
+
+    #[test]
+    fn markdown_outline_finds_headings() {
+        let src = "# Title\n\n## Section A\n\n### Subsection\n\n## Section B\n";
+        let items = compute_outline(src, Language::Markdown);
+        assert!(items.len() >= 3, "should find at least 3 headings: {}", items.len());
+    }
+
+    #[test]
+    fn outline_items_have_line_numbers() {
+        let src = "fn first() {}\n\nfn second() {}\n";
+        let items = compute_outline(src, Language::Rust);
+        assert!(items.len() >= 2);
+        assert_eq!(items[0].line, 0);
+        assert!(items[1].line > 0);
+    }
+
+    #[test]
+    fn impl_and_method_both_found() {
+        let src = "struct Foo {}\nimpl Foo {\n    fn bar(&self) {}\n}\n";
+        let items = compute_outline(src, Language::Rust);
+        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"Foo"), "should find Foo: {names:?}");
+        assert!(names.contains(&"bar"), "should find bar: {names:?}");
+    }
+
+    #[test]
+    fn breadcrumb_at_byte_returns_chain() {
+        let src = "impl Foo {\n    fn bar(&self) {\n        let x = 1;\n    }\n}\n";
+        let items = compute_outline(src, Language::Rust);
+        let offset = src.find("let x").unwrap();
+        let crumbs = breadcrumb_at_byte(&items, offset);
+        assert!(!crumbs.is_empty());
+        let names: Vec<&str> = crumbs.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"bar"), "breadcrumb should include bar: {names:?}");
+    }
+
+    #[test]
+    fn breadcrumb_outside_items_empty() {
+        let src = "fn main() {}\n";
+        let items = compute_outline(src, Language::Rust);
+        let crumbs = breadcrumb_at_byte(&items, src.len() + 100);
+        assert!(crumbs.is_empty());
+    }
+
+    #[test]
+    fn empty_source_returns_empty() {
+        let items = compute_outline("", Language::Rust);
+        assert!(items.is_empty());
+    }
+}
+
 fn language_and_query(language: Language) -> Option<(TsLanguage, &'static str)> {
     match language {
         Language::Rust => {
