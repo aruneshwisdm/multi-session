@@ -28,6 +28,14 @@ fn handle_key_press(
     }
 
     match key.as_ref() {
+        // Terminal clipboard (Ctrl+Shift+C/V)
+        keyboard::Key::Character("c") if shift => {
+            return Some(Message::TerminalCopy);
+        }
+        keyboard::Key::Character("v") if shift => {
+            return Some(Message::TerminalPaste);
+        }
+
         // Session switching: Ctrl+1..9
         keyboard::Key::Character("1") => {
             Some(Message::SwitchSession(0))

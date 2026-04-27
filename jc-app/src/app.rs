@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::views::pane::PaneContentKind;
 use crate::views::picker::PickerState;
+use crate::views::terminal_canvas::{CELL_HEIGHT, CELL_WIDTH};
 use crate::views::workspace::{Message, Workspace};
 use jc_core::config::{AppConfig, AppState};
 
@@ -22,6 +23,10 @@ pub fn run(state: AppState, config: AppConfig, ipc_rx: flume::Receiver<PathBuf>)
         .subscription(subscription)
         .theme(theme)
         .window_size(iced::Size::new(1200.0, 800.0))
+        .font(include_bytes!("../../data/fonts/Lilex-Regular.ttf").as_slice())
+        .font(include_bytes!("../../data/fonts/Lilex-Bold.ttf").as_slice())
+        .font(include_bytes!("../../data/fonts/Lilex-Italic.ttf").as_slice())
+        .font(include_bytes!("../../data/fonts/Lilex-BoldItalic.ttf").as_slice())
         .run_with(move || {
             let workspace = Workspace::new(flags.state, flags.config, flags.ipc_rx);
             (workspace, Task::none())
@@ -51,8 +56,14 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                 }
             }
         }
-        Message::TerminalResize(_cols, _rows) => {
-            // TODO: propagate resize to all active PTYs
+        Message::TerminalResize(cols, rows) => {
+            let cols = cols.clamp(20, 300);
+            let rows = rows.clamp(5, 100);
+            if cols != workspace.terminal_cols || rows != workspace.terminal_rows {
+                workspace.terminal_cols = cols;
+                workspace.terminal_rows = rows;
+                workspace.resize_all_terminals(cols, rows);
+            }
         }
 
         Message::SwitchSession(id) => workspace.switch_session(id),
@@ -82,7 +93,12 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "unknown".to_string());
                 let project =
-                    crate::views::project_state::ProjectState::create(path, name);
+                    crate::views::project_state::ProjectState::create(
+                        path,
+                        name,
+                        workspace.terminal_cols,
+                        workspace.terminal_rows,
+                    );
                 let pi = workspace.projects.len();
                 workspace.projects.push(project);
                 workspace
@@ -278,6 +294,64 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
             workspace.global_todo.perform_action(action);
         }
 
+        Message::TerminalTextSelected(text) => {
+            workspace.last_terminal_selection = text.clone();
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                let _ = clipboard.set_text(text);
+            }
+        }
+        Message::TerminalCopy => {
+            if !workspace.last_terminal_selection.is_empty() {
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    let _ = clipboard.set_text(&workspace.last_terminal_selection);
+                }
+            }
+        }
+        Message::TerminalPaste => {
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                if let Ok(text) = clipboard.get_text() {
+                    let active_kind = workspace.panes[workspace.active_pane_index].kind;
+                    let is_terminal = matches!(
+                        active_kind,
+                        PaneContentKind::ClaudeTerminal | PaneContentKind::GeneralTerminal
+                    );
+                    if is_terminal {
+                        let project = workspace.active_project_mut();
+                        if let Some(session) = project.active_session_mut() {
+                            let terminal = if active_kind == PaneContentKind::ClaudeTerminal {
+                                &session.claude_terminal
+                            } else {
+                                &session.general_terminal
+                            };
+                            let mode = terminal.state.with_term(|term| *term.mode());
+                            if mode.contains(alacritty_terminal::term::TermMode::BRACKETED_PASTE) {
+                                let _ = terminal.pty.write_all(b"\x1b[200~");
+                                let _ = terminal.pty.write_all(text.as_bytes());
+                                let _ = terminal.pty.write_all(b"\x1b[201~");
+                            } else {
+                                let _ = terminal.pty.write_all(text.as_bytes());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Message::WindowResized(width, height) => {
+            let pane_count = workspace.visible_pane_count() as f32;
+            let pane_width = width / pane_count;
+            let pane_height = height - 60.0;
+            let new_cols = ((pane_width - 16.0) / CELL_WIDTH).floor() as u16;
+            let new_rows = ((pane_height - 30.0) / CELL_HEIGHT).floor() as u16;
+            let new_cols = new_cols.clamp(20, 300);
+            let new_rows = new_rows.clamp(5, 100);
+            if new_cols != workspace.terminal_cols || new_rows != workspace.terminal_rows {
+                workspace.terminal_cols = new_cols;
+                workspace.terminal_rows = new_rows;
+                workspace.resize_all_terminals(new_cols, new_rows);
+            }
+        }
+
         Message::ToggleKeybindingHelp => {
             workspace.keybinding_help.visible = !workspace.keybinding_help.visible;
         }
@@ -404,6 +478,15 @@ fn subscription(workspace: &Workspace) -> Subscription<Message> {
             Some(Message::KeyboardEvent(event))
         }),
     );
+
+    // Window resize events
+    subscriptions.push(iced::event::listen().map(|event| {
+        if let iced::Event::Window(iced::window::Event::Resized(size)) = event {
+            Message::WindowResized(size.width, size.height)
+        } else {
+            Message::None
+        }
+    }));
 
     // Periodic tick
     subscriptions.push(

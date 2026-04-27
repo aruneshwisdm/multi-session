@@ -33,25 +33,25 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    fn spawn_shell(project_path: &Path) -> Self {
+    fn spawn_shell(project_path: &Path, cols: u16, rows: u16) -> Self {
         let (event_tx, event_rx) = flume::unbounded();
         let (pty, reader) =
-            PtyHandle::spawn_shell(80, 24, Some(project_path)).expect("failed to spawn shell PTY");
-        let state = TerminalState::new(80, 24, event_tx);
+            PtyHandle::spawn_shell(cols, rows, Some(project_path)).expect("failed to spawn shell PTY");
+        let state = TerminalState::new(cols as usize, rows as usize, event_tx);
         Self { pty, reader: Arc::new(Mutex::new(Some(reader))), state, event_rx }
     }
 
-    fn spawn_command(command: &str, project_path: &Path) -> Self {
+    fn spawn_command(command: &str, project_path: &Path, cols: u16, rows: u16) -> Self {
         let (event_tx, event_rx) = flume::unbounded();
-        match PtyHandle::spawn_command(command, 80, 24, Some(project_path)) {
+        match PtyHandle::spawn_command(command, cols, rows, Some(project_path)) {
             Ok((pty, reader)) => {
-                let state = TerminalState::new(80, 24, event_tx);
+                let state = TerminalState::new(cols as usize, rows as usize, event_tx);
                 Self { pty, reader: Arc::new(Mutex::new(Some(reader))), state, event_rx }
             }
             Err(e) => {
                 eprintln!("failed to spawn command '{command}': {e}");
                 eprintln!("falling back to shell — is 'claude' in PATH?");
-                Self::spawn_shell(project_path)
+                Self::spawn_shell(project_path, cols, rows)
             }
         }
     }
@@ -77,6 +77,8 @@ impl SessionState {
         uuid: Option<String>,
         label: String,
         project_path: &Path,
+        cols: u16,
+        rows: u16,
     ) -> Self {
         let command = uuid
             .as_ref()
@@ -84,8 +86,8 @@ impl SessionState {
             .map(|u| format!("claude --resume {u}"))
             .unwrap_or_else(|| "claude".to_string());
 
-        let claude_terminal = Terminal::spawn_command(&command, project_path);
-        let general_terminal = Terminal::spawn_shell(project_path);
+        let claude_terminal = Terminal::spawn_command(&command, project_path, cols, rows);
+        let general_terminal = Terminal::spawn_shell(project_path, cols, rows);
 
         Self {
             id,

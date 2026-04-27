@@ -7,6 +7,7 @@ pub mod diff_view;
 pub mod todo_view;
 pub mod picker;
 pub mod keybinding_help;
+pub mod terminal_canvas;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 

@@ -1,8 +1,9 @@
 use crate::language::Language;
 use crate::outline;
 use crate::views::compute_checksum;
+use crate::views::terminal_canvas::LILEX;
 use iced::widget::{column, container, text, text_editor};
-use iced::{Element, Font, Length};
+use iced::{Element, Length};
 use std::path::PathBuf;
 
 use super::workspace::Message;
@@ -92,7 +93,7 @@ impl CodeViewState {
 
         let editor = text_editor(&self.content)
             .on_action(Message::CodeEditorAction)
-            .font(Font::MONOSPACE)
+            .font(LILEX)
             .size(13)
             .height(Length::Fill)
             .highlight(

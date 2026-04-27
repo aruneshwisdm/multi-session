@@ -24,7 +24,7 @@ pub struct ProjectState {
 }
 
 impl ProjectState {
-    pub fn create(path: PathBuf, name: String) -> Self {
+    pub fn create(path: PathBuf, name: String, cols: u16, rows: u16) -> Self {
         let todo_path = path.join("TODO.md");
         let todo_text = std::fs::read_to_string(&todo_path).unwrap_or_default();
         let todo_document = todo::parse(&todo_text);
@@ -58,7 +58,7 @@ impl ProjectState {
             let id = next_session_id;
             next_session_id += 1;
             let state =
-                SessionState::create(id, uuid, todo_session.label.clone(), &path);
+                SessionState::create(id, uuid, todo_session.label.clone(), &path, cols, rows);
             sessions.insert(id, state);
         }
 

@@ -91,6 +91,13 @@ impl TerminalState {
     f(&mut term)
   }
 
+  /// Resize the terminal grid and scrollback.
+  pub fn resize(&self, cols: usize, rows: usize) {
+    let dims = TermDimensions { cols, rows };
+    let mut term = self.term.lock();
+    term.resize(dims);
+  }
+
   /// Get a clone of the Arc for use in canvas closures.
   pub fn term_handle(&self) -> Arc<Mutex<Term<EventProxy>>> {
     self.term.clone()

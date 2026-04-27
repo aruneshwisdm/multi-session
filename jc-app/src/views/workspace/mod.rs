@@ -66,6 +66,14 @@ pub enum Message {
     TodoEditorAction(text_editor::Action),
     GlobalTodoEditorAction(text_editor::Action),
 
+    // Terminal clipboard / selection
+    TerminalTextSelected(String),
+    TerminalCopy,
+    TerminalPaste,
+
+    // Window
+    WindowResized(f32, f32),
+
     // Keybinding help
     ToggleKeybindingHelp,
 
@@ -147,6 +155,11 @@ pub struct Workspace {
     pub problem_cycle: Option<problems::ProblemCycleState>,
     pub pre_layer0_home: Option<(usize, SessionId)>,
 
+    // Terminal dimensions
+    pub terminal_cols: u16,
+    pub terminal_rows: u16,
+    pub last_terminal_selection: String,
+
     // Window state
     pub window_active: bool,
 }
@@ -165,11 +178,21 @@ impl Workspace {
     ) -> Self {
         let palette = Palette::for_appearance(Appearance::Dark);
 
+        use crate::views::terminal_canvas::{CELL_WIDTH, CELL_HEIGHT};
+        let pane_width = 1200.0f32 / 3.0;
+        let pane_height = 800.0f32 - 60.0;
+        let terminal_cols = ((pane_width - 16.0) / CELL_WIDTH).floor() as u16;
+        let terminal_rows = ((pane_height - 30.0) / CELL_HEIGHT).floor() as u16;
+        let terminal_cols = terminal_cols.clamp(20, 300);
+        let terminal_rows = terminal_rows.clamp(5, 100);
+
         let mut projects = Vec::new();
         for project in &state.projects {
             projects.push(ProjectState::create(
                 project.path.clone(),
                 project.name(),
+                terminal_cols,
+                terminal_rows,
             ));
         }
 
@@ -179,7 +202,7 @@ impl Workspace {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "unknown".into());
-            projects.push(ProjectState::create(path, name));
+            projects.push(ProjectState::create(path, name, terminal_cols, terminal_rows));
         }
 
         let code_views: Vec<CodeViewState> =
@@ -260,6 +283,9 @@ impl Workspace {
             close_confirm: None,
             problem_cycle: None,
             pre_layer0_home: None,
+            terminal_cols,
+            terminal_rows,
+            last_terminal_selection: String::new(),
             window_active: true,
         }
     }
@@ -276,7 +302,7 @@ impl Workspace {
         &mut self.projects[self.active_project_index]
     }
 
-    fn visible_pane_count(&self) -> usize {
+    pub fn visible_pane_count(&self) -> usize {
         match self.layout {
             PaneLayoutKind::One => 1,
             PaneLayoutKind::Two => 2,
@@ -294,7 +320,9 @@ impl Workspace {
         project.next_session_id += 1;
 
         let label = format!("Session {}", id + 1);
-        let session = SessionState::create(id, None, label, &project.path);
+        let cols = self.terminal_cols;
+        let rows = self.terminal_rows;
+        let session = SessionState::create(id, None, label, &project.path, cols, rows);
         project.sessions.insert(id, session);
         project.active_session = Some(id);
     }
@@ -446,6 +474,17 @@ impl Workspace {
         }
 
         conflicts
+    }
+
+    pub fn resize_all_terminals(&self, cols: u16, rows: u16) {
+        for project in &self.projects {
+            for session in project.sessions.values() {
+                let _ = session.claude_terminal.pty.resize(cols, rows, 0, 0);
+                session.claude_terminal.state.resize(cols as usize, rows as usize);
+                let _ = session.general_terminal.pty.resize(cols, rows, 0, 0);
+                session.general_terminal.state.resize(cols as usize, rows as usize);
+            }
+        }
     }
 
     pub fn active_session_count(&self) -> usize {

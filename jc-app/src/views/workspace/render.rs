@@ -1,8 +1,9 @@
-use iced::widget::{button, column, container, horizontal_rule, rich_text, row, scrollable, span, text};
-use iced::{Color, Element, Font, Length};
+use iced::widget::{button, canvas, column, container, horizontal_rule, row, text};
+use iced::{Color, Element, Length};
 
 use super::{Message, Workspace};
 use crate::views::pane::PaneContentKind;
+use crate::views::terminal_canvas::TerminalProgram;
 
 impl Workspace {
     pub fn view_app(&self) -> Element<'_, Message> {
@@ -163,64 +164,17 @@ impl Workspace {
             self.palette.background.a,
         );
 
-        let mut line_elements: Vec<Element<Message>> = Vec::with_capacity(grid.rows);
-        for (row_idx, line) in grid.lines.iter().enumerate() {
-            let mut spans = Vec::new();
-            let mut run_text = String::new();
-            let mut run_fg = jc_terminal::Rgba::new(1.0, 1.0, 1.0, 1.0);
-            let mut run_bold = false;
-
-            for (col_idx, cell) in line.iter().enumerate() {
-                let is_cursor = grid.cursor.visible
-                    && row_idx == grid.cursor.line
-                    && col_idx == grid.cursor.col;
-
-                let fg = if is_cursor { cell.bg } else { cell.fg };
-                let bold = cell.bold;
-
-                if (!approx_eq(fg, run_fg) || bold != run_bold) && !run_text.is_empty() {
-                    let s = span(std::mem::take(&mut run_text))
-                        .color(rgba_to_color(run_fg));
-                    spans.push(if run_bold { s.font(Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE }) } else { s.font(Font::MONOSPACE) });
-                }
-
-                run_fg = fg;
-                run_bold = bold;
-                let ch = if cell.c == '\0' { ' ' } else { cell.c };
-                run_text.push(ch);
-            }
-
-            if !run_text.is_empty() {
-                let s = span(run_text).color(rgba_to_color(run_fg));
-                spans.push(if run_bold { s.font(Font { weight: iced::font::Weight::Bold, ..Font::MONOSPACE }) } else { s.font(Font::MONOSPACE) });
-            }
-
-            line_elements.push(rich_text(spans).size(13).into());
-        }
-
-        let busy_indicator: Element<Message> = if is_claude && session.busy {
-            container(text("working...").size(11).color(Color::from_rgb(0.4, 0.8, 0.4)))
-                .padding([2, 4])
-                .into()
-        } else {
-            text("").into()
+        let program = TerminalProgram {
+            grid,
+            bg_color,
+            is_claude,
+            busy: session.busy,
         };
 
-        container(
-            column![
-                busy_indicator,
-                scrollable(column(line_elements).spacing(0))
-                    .height(Length::Fill),
-            ]
-            .spacing(0),
-        )
-        .style(move |_theme| container::Style {
-            background: Some(iced::Background::Color(bg_color)),
-            ..Default::default()
-        })
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+        canvas(program)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
     }
 
     fn pane_title(&self, kind: PaneContentKind) -> String {
@@ -297,13 +251,3 @@ impl Workspace {
     }
 }
 
-fn rgba_to_color(rgba: jc_terminal::Rgba) -> Color {
-    Color::from_rgba(rgba.r, rgba.g, rgba.b, rgba.a)
-}
-
-fn approx_eq(a: jc_terminal::Rgba, b: jc_terminal::Rgba) -> bool {
-    (a.r - b.r).abs() < 0.001
-        && (a.g - b.g).abs() < 0.001
-        && (a.b - b.b).abs() < 0.001
-        && (a.a - b.a).abs() < 0.001
-}

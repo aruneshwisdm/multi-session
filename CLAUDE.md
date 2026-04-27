@@ -224,7 +224,7 @@ multi-session/
 
 4. **Clone to ext4, not /mnt/c/.** WSL2 file I/O on Windows mounts is significantly slower. Always work from `~/projects/` or similar ext4 path. The planning docs live on the Windows mount for easy access but the source code should not.
 
-5. **Terminal rendering uses `rich_text` spans.** `iced_term` is incompatible with iced 0.13 + alacritty_terminal 0.25. We use `rich_text` with per-cell colored spans extracted by `jc_terminal::render_grid()`. Upgrade to `iced::widget::canvas` for per-cell background colors if needed.
+5. **Terminal rendering uses `iced::widget::canvas`.** `iced_term` is incompatible with iced 0.13 + alacritty_terminal 0.25. We use `canvas` with per-cell background rectangles and character-by-character text rendering via `jc_terminal::render_grid()`. Mouse selection and clipboard are handled in the canvas `Program` implementation.
 
 6. **Message-driven architecture.** All state changes go through the iced `Message` enum and `update()`. No direct state mutation from event handlers, subscriptions, or view code.
 
@@ -243,11 +243,11 @@ All phases (0-6) are done. The app compiles with 0 errors and 0 warnings. 55 tes
 - Full text editing: `iced::widget::text_editor` replaces read-only display in code viewer, TODO editor, and global TODO
 - Terminal keyboard input: iced key events → `keystroke_to_bytes()` → PTY write when terminal pane is active
 
-**Remaining for full polish:**
-- Terminal resize propagation (window resize → PTY resize)
-- Text selection and clipboard in terminal pane
-- Custom font loading (Lilex from data/fonts/)
-- Canvas-based terminal rendering for per-cell background colors (current approach only renders foreground colors)
+**Completed in Phase 7 (polish):**
+- Terminal resize propagation: window resize → recalculate cols/rows → PTY + alacritty grid resize
+- Text selection and clipboard: mouse drag selection in terminal canvas, auto-copy on select, Ctrl+Shift+C/V, bracketed paste mode
+- Custom font loading: Lilex Regular/Bold/Italic/BoldItalic embedded and used in terminal canvas, code editor, and TODO editor
+- Canvas-based terminal rendering: `iced::widget::canvas` with per-cell background colors, cursor rendering, underline support
 
 ### Build Notes
 

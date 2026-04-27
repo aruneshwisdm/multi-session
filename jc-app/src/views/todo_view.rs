@@ -1,5 +1,6 @@
+use crate::views::terminal_canvas::LILEX;
 use iced::widget::{column, container, text, text_editor};
-use iced::{Element, Font, Length};
+use iced::{Element, Length};
 use jc_core::todo::{self, TodoDocument};
 use std::path::PathBuf;
 
@@ -70,7 +71,7 @@ impl TodoViewState {
 
         let editor = text_editor(&self.content)
             .on_action(Message::TodoEditorAction)
-            .font(Font::MONOSPACE)
+            .font(LILEX)
             .size(12)
             .height(Length::Fill)
             .highlight(
