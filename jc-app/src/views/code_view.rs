@@ -16,7 +16,6 @@ pub struct CodeViewState {
     pub dirty: bool,
     pub disk_checksum: u64,
     pub breadcrumb: Vec<String>,
-    pub scroll_offset: f32,
     pub externally_modified: bool,
 }
 
@@ -30,7 +29,6 @@ impl Default for CodeViewState {
             dirty: false,
             disk_checksum: 0,
             breadcrumb: Vec::new(),
-            scroll_offset: 0.0,
             externally_modified: false,
         }
     }

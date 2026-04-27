@@ -193,14 +193,40 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                         })
                         .collect();
                 }
-                _ => {}
+                PickerKind::Snippet => {
+                    picker.items = workspace
+                        .snippets
+                        .items
+                        .iter()
+                        .map(|s| PickerItem {
+                            label: s.heading.clone(),
+                            detail: s.content.chars().take(80).collect(),
+                            data: PickerItemData::Snippet(s.content.clone()),
+                        })
+                        .collect();
+                }
+                PickerKind::LineSearch => {}
             }
 
             workspace.picker = Some(picker);
         }
         Message::PickerQueryChanged(query) => {
             if let Some(picker) = &mut workspace.picker {
-                picker.filter(&query);
+                if matches!(picker.kind, crate::views::picker::PickerKind::LineSearch) {
+                    picker.query = query.clone();
+                    if let Ok(line) = query.trim().parse::<u32>() {
+                        picker.items = vec![crate::views::picker::PickerItem {
+                            label: format!("Go to line {line}"),
+                            detail: String::new(),
+                            data: crate::views::picker::PickerItemData::Line(line),
+                        }];
+                        picker.selected_index = 0;
+                    } else {
+                        picker.items.clear();
+                    }
+                } else {
+                    picker.filter(&query);
+                }
             }
         }
         Message::PickerSelectNext => {
@@ -252,9 +278,28 @@ fn update(workspace: &mut Workspace, message: Message) -> Task<Message> {
                         }
                         crate::views::picker::PickerItemData::Line(line) => {
                             let pi = workspace.active_project_index;
-                            workspace.code_views[pi].scroll_offset = line as f32;
+                            workspace.code_views[pi].goto_line(line as usize);
+                            let pane_idx = workspace.resolve_pane_for_kind(PaneContentKind::CodeViewer);
+                            workspace.show_in_pane(pane_idx, PaneContentKind::CodeViewer);
                         }
-                        crate::views::picker::PickerItemData::Snippet(_) => {}
+                        crate::views::picker::PickerItemData::Snippet(content) => {
+                            let active_kind = workspace.panes[workspace.active_pane_index].kind;
+                            let is_terminal = matches!(
+                                active_kind,
+                                PaneContentKind::ClaudeTerminal | PaneContentKind::GeneralTerminal
+                            );
+                            if is_terminal {
+                                let project = workspace.active_project_mut();
+                                if let Some(session) = project.active_session_mut() {
+                                    let terminal = if active_kind == PaneContentKind::ClaudeTerminal {
+                                        &session.claude_terminal
+                                    } else {
+                                        &session.general_terminal
+                                    };
+                                    let _ = terminal.pty.write_all(content.as_bytes());
+                                }
+                            }
+                        }
                     }
                 } else {
                     workspace.picker = None;
