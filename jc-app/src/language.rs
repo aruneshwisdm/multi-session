@@ -98,3 +98,98 @@ impl Language {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn from_extension_rust() {
+        assert_eq!(Language::from_extension("rs"), Language::Rust);
+    }
+
+    #[test]
+    fn from_extension_javascript() {
+        assert_eq!(Language::from_extension("js"), Language::JavaScript);
+    }
+
+    #[test]
+    fn from_extension_typescript() {
+        assert_eq!(Language::from_extension("ts"), Language::TypeScript);
+    }
+
+    #[test]
+    fn from_extension_tsx() {
+        assert_eq!(Language::from_extension("tsx"), Language::Tsx);
+    }
+
+    #[test]
+    fn from_extension_python() {
+        assert_eq!(Language::from_extension("py"), Language::Python);
+    }
+
+    #[test]
+    fn from_extension_c_header() {
+        assert_eq!(Language::from_extension("h"), Language::C);
+    }
+
+    #[test]
+    fn from_extension_cpp_variants() {
+        assert_eq!(Language::from_extension("cpp"), Language::Cpp);
+        assert_eq!(Language::from_extension("cc"), Language::Cpp);
+        assert_eq!(Language::from_extension("cxx"), Language::Cpp);
+        assert_eq!(Language::from_extension("hpp"), Language::Cpp);
+    }
+
+    #[test]
+    fn from_extension_yaml_variants() {
+        assert_eq!(Language::from_extension("yaml"), Language::Yaml);
+        assert_eq!(Language::from_extension("yml"), Language::Yaml);
+    }
+
+    #[test]
+    fn from_extension_bash_variants() {
+        assert_eq!(Language::from_extension("sh"), Language::Bash);
+        assert_eq!(Language::from_extension("bash"), Language::Bash);
+        assert_eq!(Language::from_extension("zsh"), Language::Bash);
+    }
+
+    #[test]
+    fn from_extension_unknown_is_text() {
+        assert_eq!(Language::from_extension("xyz"), Language::Text);
+        assert_eq!(Language::from_extension(""), Language::Text);
+    }
+
+    #[test]
+    fn from_path_extracts_extension() {
+        assert_eq!(Language::from_path(Path::new("src/main.rs")), Language::Rust);
+        assert_eq!(Language::from_path(Path::new("app.tsx")), Language::Tsx);
+        assert_eq!(Language::from_path(Path::new("Makefile")), Language::Text);
+    }
+
+    #[test]
+    fn name_returns_lowercase_string() {
+        assert_eq!(Language::Rust.name(), "rust");
+        assert_eq!(Language::JavaScript.name(), "javascript");
+        assert_eq!(Language::Text.name(), "text");
+    }
+
+    #[test]
+    fn extension_roundtrip() {
+        for lang in [
+            Language::Rust, Language::JavaScript, Language::TypeScript,
+            Language::Python, Language::Go, Language::Markdown,
+            Language::Toml, Language::Json, Language::Html, Language::Css,
+            Language::C, Language::Java, Language::Bash, Language::Text,
+        ] {
+            let ext = lang.extension();
+            assert_eq!(Language::from_extension(ext), lang, "roundtrip failed for {lang:?}");
+        }
+    }
+
+    #[test]
+    fn default_is_text() {
+        assert_eq!(Language::default(), Language::Text);
+    }
+}
