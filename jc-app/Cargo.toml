@@ -30,3 +30,4 @@ log.workspace = true
 alacritty_terminal.workspace = true
 toml.workspace = true
 dirs.workspace = true
+chrono.workspace = true

@@ -64,12 +64,19 @@ pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Messag
         }
 
         Message::SwitchSession(id) => workspace.switch_session(id),
-        Message::NewSession => workspace.create_session(),
-        Message::CloseSession(id) => workspace.close_session(id),
+        Message::NewSession => {
+            workspace.create_session();
+            workspace.sessions_dirty = true;
+        }
+        Message::CloseSession(id) => {
+            workspace.close_session(id);
+            workspace.sessions_dirty = true;
+        }
         Message::CloseActiveSession => {
             let project = workspace.active_project();
             if let Some(id) = project.active_session {
                 workspace.close_session(id);
+                workspace.sessions_dirty = true;
             }
         }
         Message::SwitchProject(idx) => {
@@ -86,6 +93,7 @@ pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Messag
 
         Message::HookReceived(event) => {
             workspace.handle_hook_event(event);
+            workspace.sessions_dirty = true;
         }
 
         Message::IpcProjectOpen(path) => {
@@ -433,6 +441,7 @@ pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Messag
                 });
         }
         Message::ConfirmClose => {
+            workspace.persist_sessions();
             workspace.close_confirm = None;
             for project in &workspace.projects {
                 let _ = jc_core::hooks_settings::uninstall_hooks(&project.path);
@@ -446,6 +455,10 @@ pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Messag
         Message::Tick => {
             for project in &mut workspace.projects {
                 project.refresh_problems();
+            }
+            if workspace.sessions_dirty {
+                workspace.persist_sessions();
+                workspace.sessions_dirty = false;
             }
         }
 

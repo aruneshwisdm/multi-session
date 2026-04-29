@@ -284,6 +284,12 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_r_toggles_diff_reviewed() {
+        let event = key_event("r", true, false);
+        assert!(matches!(handle_key_event(&event), Some(Message::DiffReviewed)));
+    }
+
+    #[test]
     fn ctrl_semicolon_next_problem() {
         let event = key_event(";", true, false);
         assert!(matches!(handle_key_event(&event), Some(Message::NextProblem)));
