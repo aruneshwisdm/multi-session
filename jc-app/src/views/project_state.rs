@@ -82,6 +82,29 @@ impl ProjectState {
         }
     }
 
+    pub fn create_bare(path: PathBuf, name: String) -> Self {
+        let todo_path = path.join("TODO.md");
+        let todo_text = std::fs::read_to_string(&todo_path).unwrap_or_default();
+        let todo_document = todo::parse(&todo_text);
+
+        Self {
+            path,
+            name,
+            sessions: HashMap::new(),
+            active_session: None,
+            next_session_id: 0,
+            todo_document,
+            todo_text,
+            todo_dirty: false,
+            diff_text: String::new(),
+            diff_stale: true,
+            unreviewed_files: Vec::new(),
+            problems: Vec::new(),
+            script_problems: Vec::new(),
+            last_script_run: None,
+        }
+    }
+
     pub fn session_dir(project_path: &Path) -> PathBuf {
         let encoded: String = project_path
             .to_string_lossy()

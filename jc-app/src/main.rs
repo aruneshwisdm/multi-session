@@ -1,5 +1,6 @@
 mod app;
 pub mod app_config;
+pub mod session_persistence;
 #[allow(dead_code)]
 mod language;
 #[allow(dead_code)]

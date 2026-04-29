@@ -165,6 +165,9 @@ pub struct Workspace {
 
     // Window state
     pub window_active: bool,
+
+    // Session persistence
+    pub sessions_dirty: bool,
 }
 
 pub struct CloseConfirmState {
@@ -189,14 +192,46 @@ impl Workspace {
         let terminal_cols = terminal_cols.clamp(20, 300);
         let terminal_rows = terminal_rows.clamp(5, 100);
 
+        let app_config = crate::app_config::load().unwrap_or_default();
+        let session_store = if app_config.is_enabled("session_restore") {
+            crate::session_persistence::load().unwrap_or_default()
+        } else {
+            crate::session_persistence::SessionStore::default()
+        };
+
         let mut projects = Vec::new();
         for project in &state.projects {
-            projects.push(ProjectState::create(
-                project.path.clone(),
-                project.name(),
-                terminal_cols,
-                terminal_rows,
-            ));
+            let path = project.path.clone();
+            let name = project.name();
+            let persisted = session_store.for_project(&path);
+
+            if !persisted.is_empty() {
+                let mut project_state = ProjectState::create_bare(path.clone(), name);
+                for ps in &persisted {
+                    let id = project_state.next_session_id;
+                    project_state.next_session_id += 1;
+                    let mut session = SessionState::create(
+                        id,
+                        ps.uuid.clone(),
+                        ps.label.clone(),
+                        &path,
+                        terminal_cols,
+                        terminal_rows,
+                    );
+                    session.has_ever_been_busy = ps.has_ever_been_busy;
+                    project_state.sessions.insert(id, session);
+                }
+                project_state.active_session =
+                    project_state.sessions.keys().next().copied();
+                projects.push(project_state);
+            } else {
+                projects.push(ProjectState::create(
+                    path,
+                    name,
+                    terminal_cols,
+                    terminal_rows,
+                ));
+            }
         }
 
         if projects.is_empty() {
@@ -266,8 +301,6 @@ impl Workspace {
         snippets::ensure_file_exists();
         let snippets = snippets::load();
 
-        let app_config = crate::app_config::load().unwrap_or_default();
-
         Self {
             panes,
             active_pane_index: 0,
@@ -293,6 +326,7 @@ impl Workspace {
             terminal_rows,
             last_terminal_selection: String::new(),
             window_active: true,
+            sessions_dirty: false,
         }
     }
 
@@ -491,6 +525,28 @@ impl Workspace {
         }
     }
 
+    pub fn persist_sessions(&self) {
+        if !self.app_config.is_enabled("session_restore") {
+            return;
+        }
+        let mut store = crate::session_persistence::SessionStore::default();
+        for project in &self.projects {
+            for session in project.sessions.values() {
+                store.sessions.push(crate::session_persistence::PersistedSession {
+                    project_path: project.path.clone(),
+                    label: session.label.clone(),
+                    uuid: session.uuid.clone(),
+                    busy: session.busy,
+                    has_ever_been_busy: session.has_ever_been_busy,
+                    saved_at: chrono::Utc::now(),
+                });
+            }
+        }
+        if let Err(e) = crate::session_persistence::save(&store) {
+            eprintln!("failed to persist sessions: {e}");
+        }
+    }
+
     pub fn active_session_count(&self) -> usize {
         self.projects
             .iter()
@@ -537,6 +593,7 @@ impl Workspace {
             terminal_rows: 24,
             last_terminal_selection: String::new(),
             window_active: true,
+            sessions_dirty: false,
         }
     }
 }
