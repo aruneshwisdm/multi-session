@@ -1,4 +1,5 @@
 mod app;
+pub mod app_config;
 #[allow(dead_code)]
 mod language;
 #[allow(dead_code)]

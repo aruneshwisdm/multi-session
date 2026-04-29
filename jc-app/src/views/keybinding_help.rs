@@ -28,6 +28,7 @@ const BINDINGS: &[Binding] = &[
     Binding { key: "Ctrl+K", description: "Snippet picker" },
     Binding { key: "Ctrl+O", description: "Project picker" },
     Binding { key: "Ctrl+D", description: "Git diff" },
+    Binding { key: "Ctrl+R", description: "Toggle diff reviewed" },
     Binding { key: "Ctrl+J", description: "Toggle pane layout" },
     Binding { key: "Ctrl+/", description: "Move focus between panes" },
     Binding { key: "Ctrl+?", description: "Show this help" },

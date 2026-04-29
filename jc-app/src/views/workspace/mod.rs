@@ -3,6 +3,7 @@ mod render;
 pub(crate) mod keybindings;
 pub(crate) mod terminal_input;
 
+use crate::app_config::JcAppConfig;
 use crate::views::code_view::CodeViewState;
 use crate::views::diff_view::DiffViewState;
 use crate::views::keybinding_help::KeybindingHelpState;
@@ -120,6 +121,7 @@ pub struct Workspace {
     pub projects: Vec<ProjectState>,
     pub active_project_index: usize,
     pub config: AppConfig,
+    pub app_config: JcAppConfig,
     pub palette: Palette,
 
     // Picker state
@@ -264,6 +266,8 @@ impl Workspace {
         snippets::ensure_file_exists();
         let snippets = snippets::load();
 
+        let app_config = crate::app_config::load().unwrap_or_default();
+
         Self {
             panes,
             active_pane_index: 0,
@@ -271,6 +275,7 @@ impl Workspace {
             projects,
             active_project_index: 0,
             config,
+            app_config,
             palette,
             picker: None,
             keybinding_help: KeybindingHelpState::default(),
@@ -514,6 +519,7 @@ impl Workspace {
             projects: vec![project],
             active_project_index: 0,
             config: AppConfig::default(),
+            app_config: JcAppConfig::default(),
             palette: Palette::for_appearance(Appearance::Dark),
             picker: None,
             keybinding_help: KeybindingHelpState::default(),

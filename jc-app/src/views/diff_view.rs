@@ -1,4 +1,4 @@
-use iced::widget::{column, container, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text};
 use iced::Element;
 use std::path::{Path, PathBuf};
 
@@ -58,9 +58,16 @@ impl DiffViewState {
     }
 
     pub fn apply_diff_text(&mut self, diff_text: String) -> bool {
-        let file_diffs = parse_diff_files(&diff_text);
-        let changed = self.file_diffs.len() != file_diffs.len();
-        self.file_diffs = file_diffs;
+        let mut new_diffs = parse_diff_files(&diff_text);
+        for new_file in &mut new_diffs {
+            if let Some(old) = self.file_diffs.iter().find(|f| f.name == new_file.name) {
+                if old.content == new_file.content {
+                    new_file.reviewed = old.reviewed;
+                }
+            }
+        }
+        let changed = self.file_diffs.len() != new_diffs.len();
+        self.file_diffs = new_diffs;
         self.stale = false;
         changed
     }
@@ -88,15 +95,32 @@ impl DiffViewState {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let header = {
-            let reviewed = self.reviewed_count();
-            let total = self.file_count();
-            let source_label = self.source.label();
-            text(format!(
-                "Diff [{source_label}] ({reviewed}/{total} reviewed)"
-            ))
-            .size(14)
+        let reviewed = self.reviewed_count();
+        let total = self.file_count();
+        let source_label = self.source.label();
+
+        let header_text = text(format!(
+            "Diff [{source_label}] ({reviewed}/{total} reviewed)"
+        ))
+        .size(14);
+
+        let review_btn: Element<Message> = if let Some(file) = self.file_diffs.get(self.current_file_index) {
+            let label = if file.reviewed {
+                "\u{2713} reviewed"
+            } else {
+                "\u{25cb} unreviewed"
+            };
+            button(text(label).size(11))
+                .on_press(Message::DiffReviewed)
+                .padding([2, 6])
+                .into()
+        } else {
+            text("").into()
         };
+
+        let header = row![header_text, review_btn]
+            .spacing(8)
+            .align_y(iced::Alignment::Center);
 
         let body: Element<Message> = if self.file_diffs.is_empty() {
             text("No changes").size(13).into()
@@ -245,6 +269,40 @@ index 111222..333444 100644
         assert!(changed);
         let changed = dv.apply_diff_text(SAMPLE_DIFF.to_string());
         assert!(!changed);
+    }
+
+    #[test]
+    fn review_toggle_twice_returns_to_unreviewed() {
+        let mut dv = DiffViewState::new(PathBuf::from("/tmp/test"));
+        dv.apply_diff_text(SAMPLE_DIFF.to_string());
+        dv.file_diffs[0].reviewed = true;
+        assert_eq!(dv.reviewed_count(), 1);
+        dv.file_diffs[0].reviewed = !dv.file_diffs[0].reviewed;
+        assert_eq!(dv.reviewed_count(), 0);
+    }
+
+    #[test]
+    fn apply_diff_preserves_reviewed_for_unchanged_files() {
+        let mut dv = DiffViewState::new(PathBuf::from("/tmp/test"));
+        dv.apply_diff_text(SAMPLE_DIFF.to_string());
+        dv.file_diffs[0].reviewed = true;
+        dv.apply_diff_text(SAMPLE_DIFF.to_string());
+        assert!(dv.file_diffs[0].reviewed);
+        assert!(!dv.file_diffs[1].reviewed);
+    }
+
+    #[test]
+    fn apply_diff_resets_reviewed_for_changed_files() {
+        let mut dv = DiffViewState::new(PathBuf::from("/tmp/test"));
+        dv.apply_diff_text(SAMPLE_DIFF.to_string());
+        dv.file_diffs[0].reviewed = true;
+
+        let modified_diff = SAMPLE_DIFF.replace(
+            "+    println!(\"hello\");",
+            "+    println!(\"goodbye\");",
+        );
+        dv.apply_diff_text(modified_diff);
+        assert!(!dv.file_diffs[0].reviewed);
     }
 }
 

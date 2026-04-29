@@ -326,8 +326,10 @@ pub(crate) fn update(workspace: &mut Workspace, message: Message) -> Task<Messag
             let pi = workspace.active_project_index;
             let dv = &mut workspace.diff_views[pi];
             if let Some(fd) = dv.file_diffs.get_mut(dv.current_file_index) {
-                fd.reviewed = true;
+                fd.reviewed = !fd.reviewed;
             }
+            workspace.projects[pi].unreviewed_files = dv.unreviewed_files();
+            workspace.projects[pi].refresh_problems();
         }
 
         Message::CodeEditorAction(action) => {

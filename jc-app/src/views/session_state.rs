@@ -11,6 +11,15 @@ use super::pane::PaneContentKind;
 
 pub type SessionId = usize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionActivity {
+    Busy,
+    Idle,
+    NeedsPermission,
+    Error,
+    New,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PendingEvent {
     ClaudePermission,
@@ -135,7 +144,93 @@ impl SessionState {
         changed
     }
 
+    pub fn activity(&self) -> SessionActivity {
+        determine_activity(&self.pending_events, self.busy, self.has_ever_been_busy)
+    }
+
     pub fn acknowledge(&mut self) {
         self.pending_events.clear();
+    }
+}
+
+fn determine_activity(
+    pending_events: &HashSet<PendingEvent>,
+    busy: bool,
+    has_ever_been_busy: bool,
+) -> SessionActivity {
+    if pending_events.contains(&PendingEvent::ClaudeStopFailure) {
+        SessionActivity::Error
+    } else if pending_events.contains(&PendingEvent::ClaudePermission) {
+        SessionActivity::NeedsPermission
+    } else if busy {
+        SessionActivity::Busy
+    } else if !has_ever_been_busy {
+        SessionActivity::New
+    } else {
+        SessionActivity::Idle
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activity_new_session() {
+        let events = HashSet::new();
+        assert_eq!(determine_activity(&events, false, false), SessionActivity::New);
+    }
+
+    #[test]
+    fn activity_busy() {
+        let events = HashSet::new();
+        assert_eq!(determine_activity(&events, true, true), SessionActivity::Busy);
+    }
+
+    #[test]
+    fn activity_idle() {
+        let events = HashSet::new();
+        assert_eq!(determine_activity(&events, false, true), SessionActivity::Idle);
+    }
+
+    #[test]
+    fn activity_needs_permission() {
+        let mut events = HashSet::new();
+        events.insert(PendingEvent::ClaudePermission);
+        assert_eq!(
+            determine_activity(&events, true, true),
+            SessionActivity::NeedsPermission
+        );
+    }
+
+    #[test]
+    fn activity_error() {
+        let mut events = HashSet::new();
+        events.insert(PendingEvent::ClaudeStopFailure);
+        assert_eq!(determine_activity(&events, false, true), SessionActivity::Error);
+    }
+
+    #[test]
+    fn activity_error_takes_priority_over_permission() {
+        let mut events = HashSet::new();
+        events.insert(PendingEvent::ClaudeStopFailure);
+        events.insert(PendingEvent::ClaudePermission);
+        assert_eq!(determine_activity(&events, true, true), SessionActivity::Error);
+    }
+
+    #[test]
+    fn activity_permission_takes_priority_over_busy() {
+        let mut events = HashSet::new();
+        events.insert(PendingEvent::ClaudePermission);
+        assert_eq!(
+            determine_activity(&events, true, true),
+            SessionActivity::NeedsPermission
+        );
+    }
+
+    #[test]
+    fn activity_busy_takes_priority_over_new() {
+        let events = HashSet::new();
+        assert_eq!(determine_activity(&events, true, false), SessionActivity::Busy);
     }
 }

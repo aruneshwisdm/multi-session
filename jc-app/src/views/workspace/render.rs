@@ -3,7 +3,18 @@ use iced::{Color, Element, Length};
 
 use super::{Message, Workspace};
 use crate::views::pane::PaneContentKind;
+use crate::views::session_state::SessionActivity;
 use crate::views::terminal_canvas::TerminalProgram;
+
+fn activity_indicator(activity: SessionActivity) -> (&'static str, Color) {
+    match activity {
+        SessionActivity::Busy => ("\u{25cf}", Color::from_rgb(0.2, 0.7, 0.3)),
+        SessionActivity::NeedsPermission => ("\u{25cf}", Color::from_rgb(1.0, 0.6, 0.0)),
+        SessionActivity::Error => ("\u{25cf}", Color::from_rgb(0.9, 0.2, 0.2)),
+        SessionActivity::Idle => ("\u{25cf}", Color::from_rgb(0.5, 0.5, 0.5)),
+        SessionActivity::New => ("\u{25cb}", Color::from_rgb(0.7, 0.7, 0.7)),
+    }
+}
 
 impl Workspace {
     pub fn view_app(&self) -> Element<'_, Message> {
@@ -58,16 +69,18 @@ impl Workspace {
                 } else {
                     session.label.clone()
                 };
-                let has_problems = !session.problems.is_empty();
-                let tab_text = if has_problems {
-                    format!("! {}", label)
-                } else {
-                    label
-                };
-                button(text(tab_text).size(12))
-                    .on_press(Message::SwitchSession(id))
-                    .padding(4)
-                    .into()
+                let (dot, dot_color) = activity_indicator(session.activity());
+                button(
+                    row![
+                        text(dot).size(10).color(dot_color),
+                        text(label).size(12),
+                    ]
+                    .spacing(4)
+                    .align_y(iced::Alignment::Center),
+                )
+                .on_press(Message::SwitchSession(id))
+                .padding(4)
+                .into()
             })
             .collect();
 
@@ -75,18 +88,43 @@ impl Workspace {
             .on_press(Message::NewSession)
             .padding(4);
 
-        container(
-            row![
-                title_text,
-                row(tabs).spacing(4),
-                new_session_btn,
-            ]
-            .spacing(12)
-            .align_y(iced::Alignment::Center),
-        )
-        .padding([4, 8])
-        .width(Length::Fill)
-        .into()
+        // Status bar badges: cross-session problem counts per layer
+        let layer_counts = self.layer_problem_sessions();
+        let badge_defs: [(&str, Color, &Vec<String>); 4] = [
+            ("!", Color::from_rgb(0.9, 0.2, 0.2), &layer_counts[0]),
+            ("?", Color::from_rgb(1.0, 0.6, 0.0), &layer_counts[1]),
+            ("~", Color::from_rgb(0.3, 0.5, 0.9), &layer_counts[2]),
+            ("\u{25cb}", Color::from_rgb(0.5, 0.5, 0.5), &layer_counts[3]),
+        ];
+        let badges: Vec<Element<Message>> = badge_defs
+            .iter()
+            .filter(|(_, _, sessions)| !sessions.is_empty())
+            .map(|(icon, color, sessions)| {
+                text(format!("{icon}{}", sessions.len()))
+                    .size(11)
+                    .color(*color)
+                    .into()
+            })
+            .collect();
+
+        let mut title_row = row![
+            title_text,
+            row(tabs).spacing(4),
+            new_session_btn,
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Center);
+
+        if !badges.is_empty() {
+            title_row = title_row.push(
+                row(badges).spacing(8).align_y(iced::Alignment::Center),
+            );
+        }
+
+        container(title_row)
+            .padding([4, 8])
+            .width(Length::Fill)
+            .into()
     }
 
     fn render_panes(&self) -> Element<'_, Message> {

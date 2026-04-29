@@ -108,6 +108,11 @@ fn handle_key_press(
             Some(Message::ToggleKeybindingHelp)
         }
 
+        // Diff review toggle
+        keyboard::Key::Character("r") if !shift => {
+            Some(Message::DiffReviewed)
+        }
+
         // Save
         keyboard::Key::Character("s") => Some(Message::SaveFile),
 
